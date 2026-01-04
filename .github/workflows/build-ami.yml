@@ -1,0 +1,105 @@
+name: Speech AMI Build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'speech-ami/**'
+      - '.github/workflows/build-ami.yml'
+  workflow_dispatch:
+    inputs:
+      aws_region:
+        description: 'AWS Region'
+        required: false
+        default: 'us-east-1'
+      instance_type:
+        description: 'Instance type for AMI build'
+        required: false
+        default: 't3.medium'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ github.event.inputs.aws_region || 'us-east-1' }}
+  PACKER_VERSION: 1.10.0
+
+jobs:
+  build-ami:
+    name: Build Speech AMI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: speech-ami
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-Packer-Build
+
+      - name: Setup Packer
+        uses: hashicorp/setup-packer@main
+        with:
+          version: ${{ env.PACKER_VERSION }}
+
+      - name: Initialize Packer
+        run: packer init nestor-audio-server.pkr.hcl
+
+      - name: Validate Packer template
+        run: packer validate nestor-audio-server.pkr.hcl
+
+      - name: Build AMI
+        run: |
+          packer build \
+            -var "aws_region=${{ env.AWS_REGION }}" \
+            -var "instance_type=${{ github.event.inputs.instance_type || 't3.medium' }}" \
+            nestor-audio-server.pkr.hcl
+
+      - name: Get AMI ID
+        id: ami
+        run: |
+          AMI_ID=$(jq -r '.builds[-1].artifact_id' speech-ami/manifest.json | cut -d: -f2)
+          echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
+          echo "Built AMI: $AMI_ID"
+
+      - name: Create/Update AMI Alias
+        run: |
+          # Deregister old alias if exists
+          OLD_AMI=$(aws ec2 describe-images \
+            --filters "Name=tag:AmiAlias,Values=nestor-whisper-latest" \
+            --query 'Images[0].ImageId' \
+            --output text \
+            --region ${{ env.AWS_REGION }})
+          
+          if [ "$OLD_AMI" != "None" ] && [ "$OLD_AMI" != "" ]; then
+            echo "Removing alias tag from old AMI: $OLD_AMI"
+            aws ec2 delete-tags \
+              --resources $OLD_AMI \
+              --tags Key=AmiAlias \
+              --region ${{ env.AWS_REGION }} || true
+          fi
+          
+          # Tag new AMI with alias
+          echo "Tagging new AMI with alias: nestor-whisper-latest"
+          aws ec2 create-tags \
+            --resources ${{ steps.ami.outputs.ami_id }} \
+            --tags \
+              Key=AmiAlias,Value=nestor-whisper-latest \
+              Key=GitHubSHA,Value=${{ github.sha }} \
+              Key=BuildDate,Value=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+            --region ${{ env.AWS_REGION }}
+          
+          echo "AMI alias 'nestor-whisper-latest' now points to: ${{ steps.ami.outputs.ami_id }}"
+
+      - name: Output AMI details
+        run: |
+          echo "::notice title=AMI Built::AMI ID: ${{ steps.ami.outputs.ami_id }}"
+          echo "::notice title=AMI Alias::nestor-whisper-latest → ${{ steps.ami.outputs.ami_id }}"
