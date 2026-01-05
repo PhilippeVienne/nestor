@@ -3,7 +3,13 @@ data "tls_certificate" "github" {
   url = "https://token.actions.githubusercontent.com/.well-known/openid-configuration"
 }
 
+# Use existing OIDC provider if it exists, otherwise create new one
+data "aws_iam_openid_connect_provider" "github_existing" {
+  url = "https://token.actions.githubusercontent.com"
+}
+
 resource "aws_iam_openid_connect_provider" "github" {
+  count = 0  # Provider already exists, don't create
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
   thumbprint_list = [data.tls_certificate.github.certificates[0].sha1_fingerprint]
@@ -21,7 +27,7 @@ resource "aws_iam_role" "github_actions" {
       {
         Effect = "Allow"
         Principal = {
-          Federated = aws_iam_openid_connect_provider.github.arn
+          Federated = data.aws_iam_openid_connect_provider.github_existing.arn
         }
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
@@ -74,8 +80,9 @@ resource "aws_iam_role_policy" "github_actions_default" {
           "ecr:GetAuthorizationToken"
         ]
         Resource = "*"
-      },
-      {
+      }] : [],
+
+      var.enable_ecr_access ? [{
         Effect = "Allow"
         Action = [
           "ecr:BatchCheckLayerAvailability",
@@ -88,7 +95,7 @@ resource "aws_iam_role_policy" "github_actions_default" {
         ]
         Resource = var.ecr_repository_arns
       }] : [],
-      
+
       var.enable_s3_access ? [{
         Effect = "Allow"
         Action = [
@@ -102,7 +109,7 @@ resource "aws_iam_role_policy" "github_actions_default" {
           [for arn in var.s3_bucket_arns : "${arn}/*"]
         )
       }] : [],
-      
+
       var.enable_lambda_deploy ? [{
         Effect = "Allow"
         Action = [
@@ -113,7 +120,7 @@ resource "aws_iam_role_policy" "github_actions_default" {
         ]
         Resource = var.lambda_function_arns
       }] : [],
-      
+
       var.enable_terraform_state ? [{
         Effect = "Allow"
         Action = [
@@ -125,8 +132,9 @@ resource "aws_iam_role_policy" "github_actions_default" {
           var.terraform_state_bucket_arn,
           "${var.terraform_state_bucket_arn}/*"
         ]
-      },
-      {
+      }] : [],
+
+      var.enable_terraform_state ? [{
         Effect = "Allow"
         Action = [
           "dynamodb:DescribeTable",
