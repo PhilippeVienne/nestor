@@ -1,32 +1,3 @@
-resource "aws_kms_key" "ecr" {
-  count = var.enable_kms_encryption ? 1 : 0
-
-  description             = "KMS key for ECR encryption"
-  deletion_window_in_days = var.kms_deletion_window_days
-  enable_key_rotation     = true
-
-  tags = {
-    Name = "${local.name_prefix}-ecr-kms"
-  }
-}
-
-resource "aws_kms_alias" "ecr" {
-  count = var.enable_kms_encryption ? 1 : 0
-
-  name          = "alias/${local.name_prefix}-ecr"
-  target_key_id = aws_kms_key.ecr[0].key_id
-}
-
-output "kms_key_id" {
-  description = "KMS key ID for ECR encryption"
-  value       = var.enable_kms_encryption ? aws_kms_key.ecr[0].id : null
-}
-
-output "kms_key_arn" {
-  description = "KMS key ARN for ECR encryption"
-  value       = var.enable_kms_encryption ? aws_kms_key.ecr[0].arn : null
-}
-
 # KMS Key for S3 Audio Bucket
 resource "aws_kms_key" "s3_audio" {
   count = var.enable_kms_encryption ? 1 : 0

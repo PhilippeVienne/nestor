@@ -7,7 +7,7 @@ resource "aws_ssm_parameter" "ecr_repository_url" {
   name        = "${local.parameter_prefix}/ecr_repository_url"
   description = "ECR repository URL"
   type        = "SecureString"
-  value       = aws_ecr_repository.app.repository_url
+  value       = module.ecr_repository.repository_url
 
   tags = {
     Name = "${local.parameter_prefix}/ecr_repository_url"
@@ -18,7 +18,7 @@ resource "aws_ssm_parameter" "ecr_repository_arn" {
   name        = "${local.parameter_prefix}/ecr_repository_arn"
   description = "ECR repository ARN"
   type        = "SecureString"
-  value       = aws_ecr_repository.app.arn
+  value       = module.ecr_repository.repository_arn
 
   tags = {
     Name = "${local.parameter_prefix}/ecr_repository_arn"
@@ -29,7 +29,7 @@ resource "aws_ssm_parameter" "ecr_repository_name" {
   name        = "${local.parameter_prefix}/ecr_repository_name"
   description = "ECR repository name"
   type        = "SecureString"
-  value       = aws_ecr_repository.app.name
+  value       = module.ecr_repository.repository_name
 
   tags = {
     Name = "${local.parameter_prefix}/ecr_repository_name"
@@ -86,7 +86,7 @@ resource "aws_ssm_parameter" "iam_policy_ecr_push_arn" {
   name        = "${local.parameter_prefix}/iam_policy_ecr_push_arn"
   description = "IAM policy ARN for ECR push access"
   type        = "SecureString"
-  value       = aws_iam_policy.ecr_push.arn
+  value       = module.ecr_repository.iam_policy_ecr_push_arn
 
   tags = {
     Name = "${local.parameter_prefix}/iam_policy_ecr_push_arn"
@@ -97,7 +97,7 @@ resource "aws_ssm_parameter" "iam_policy_ecr_pull_arn" {
   name        = "${local.parameter_prefix}/iam_policy_ecr_pull_arn"
   description = "IAM policy ARN for ECR pull access"
   type        = "SecureString"
-  value       = aws_iam_policy.ecr_pull.arn
+  value       = module.ecr_repository.iam_policy_ecr_pull_arn
 
   tags = {
     Name = "${local.parameter_prefix}/iam_policy_ecr_pull_arn"
@@ -108,7 +108,7 @@ resource "aws_ssm_parameter" "iam_policy_ecr_admin_arn" {
   name        = "${local.parameter_prefix}/iam_policy_ecr_admin_arn"
   description = "IAM policy ARN for ECR admin access"
   type        = "SecureString"
-  value       = aws_iam_policy.ecr_admin.arn
+  value       = module.ecr_repository.iam_policy_ecr_admin_arn
 
   tags = {
     Name = "${local.parameter_prefix}/iam_policy_ecr_admin_arn"
@@ -167,7 +167,7 @@ resource "aws_ssm_parameter" "kms_ecr_key_arn" {
   name        = "${local.parameter_prefix}/kms_ecr_key_arn"
   description = "KMS key ARN for ECR encryption"
   type        = "SecureString"
-  value       = aws_kms_key.ecr[0].arn
+  value       = module.ecr_repository.kms_key_arn
 
   tags = {
     Name = "${local.parameter_prefix}/kms_ecr_key_arn"
@@ -206,7 +206,7 @@ resource "aws_ssm_parameter" "iam_policy_ecr_kms_arn" {
   name        = "${local.parameter_prefix}/iam_policy_ecr_kms_arn"
   description = "IAM policy ARN for ECR KMS operations"
   type        = "SecureString"
-  value       = aws_iam_policy.ecr_kms[0].arn
+  value       = module.ecr_repository.iam_policy_ecr_kms_arn
 
   tags = {
     Name = "${local.parameter_prefix}/iam_policy_ecr_kms_arn"
