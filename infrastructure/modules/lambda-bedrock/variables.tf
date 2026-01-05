@@ -3,16 +3,9 @@ variable "function_name" {
   type        = string
 }
 
-variable "handler" {
-  description = "Lambda function handler"
+variable "image_uri" {
+  description = "URI of the container image in ECR"
   type        = string
-  default     = "index.handler"
-}
-
-variable "runtime" {
-  description = "Lambda runtime"
-  type        = string
-  default     = "python3.11"
 }
 
 variable "timeout" {
@@ -25,12 +18,6 @@ variable "memory_size" {
   description = "Lambda memory size in MB"
   type        = number
   default     = 512
-}
-
-variable "lambda_zip_path" {
-  description = "Path to Lambda deployment package (null if not yet created)"
-  type        = string
-  default     = null
 }
 
 variable "vpc_id" {

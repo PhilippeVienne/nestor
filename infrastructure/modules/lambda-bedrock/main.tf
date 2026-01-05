@@ -1,21 +1,17 @@
 # Lambda function for Bedrock NLP processing
 resource "aws_lambda_function" "bedrock_processor" {
-  filename         = var.lambda_zip_path
-  function_name    = var.function_name
-  role            = aws_iam_role.lambda.arn
-  handler         = var.handler
-  runtime         = var.runtime
-  timeout         = var.timeout
-  memory_size     = var.memory_size
-
-  source_code_hash = var.lambda_zip_path != null ? filebase64sha256(var.lambda_zip_path) : null
+  function_name = var.function_name
+  role          = aws_iam_role.lambda.arn
+  package_type  = "Image"
+  image_uri     = var.image_uri
+  timeout       = var.timeout
+  memory_size   = var.memory_size
 
   environment {
     variables = merge({
       TRANSCRIPT_BUCKET = var.transcript_bucket_name
       RDS_SECRET_ARN    = var.rds_secret_arn
       BEDROCK_MODEL_ID  = var.bedrock_model_id
-      AWS_REGION        = var.aws_region
     }, var.environment_variables)
   }
 
