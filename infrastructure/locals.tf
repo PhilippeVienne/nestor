@@ -1,13 +1,13 @@
 locals {
   ecr_repository_name = "${var.project_name}-app"
-  
+
   # Common resource naming
   name_prefix = "${var.project_name}-${var.environment}"
-  
+
   # S3 bucket prefixes
   s3_audio_bucket_prefix      = "${var.project_name}-${var.environment}-audio-recordings-"
   s3_transcript_bucket_prefix = "${var.project_name}-${var.environment}-transcripts-"
-  
+
   # ECR lifecycle policy
   ecr_lifecycle_policy = {
     rules = [
@@ -39,39 +39,39 @@ locals {
       }
     ]
   }
-  
+
   # S3 lifecycle rules for audio bucket
   s3_audio_lifecycle_rules = var.s3_lifecycle_audio_expiry_days > 0 || var.s3_lifecycle_audio_transition_days > 0 ? [
     {
       id     = "audio-lifecycle"
       status = "Enabled"
-      
+
       transition = var.s3_lifecycle_audio_transition_days > 0 ? [
         {
           days          = var.s3_lifecycle_audio_transition_days
           storage_class = "INTELLIGENT_TIERING"
         }
       ] : []
-      
+
       expiration = var.s3_lifecycle_audio_expiry_days > 0 ? {
         days = var.s3_lifecycle_audio_expiry_days
       } : null
     }
   ] : []
-  
+
   # S3 lifecycle rules for transcript bucket
   s3_transcript_lifecycle_rules = var.s3_lifecycle_transcript_expiry_days > 0 || var.s3_lifecycle_transcript_transition_days > 0 ? [
     {
       id     = "transcript-lifecycle"
       status = "Enabled"
-      
+
       transition = var.s3_lifecycle_transcript_transition_days > 0 ? [
         {
           days          = var.s3_lifecycle_transcript_transition_days
           storage_class = "INTELLIGENT_TIERING"
         }
       ] : []
-      
+
       expiration = var.s3_lifecycle_transcript_expiry_days > 0 ? {
         days = var.s3_lifecycle_transcript_expiry_days
       } : null

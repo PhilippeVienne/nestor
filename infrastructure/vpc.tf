@@ -15,20 +15,26 @@ module "vpc" {
 
   # IPv6 CIDR blocks - Let AWS assign them
   public_subnet_ipv6_prefixes  = [0, 1, 2]
-  private_subnet_ipv6_prefixes = [3, 4, 5]
+  public_subnet_ipv6_native = var.vpc_ipv6_native
+  private_subnet_ipv6_prefixes = [6, 7, 8]
+  private_subnet_ipv6_native = var.vpc_ipv6_native
 
   # NAT Gateway - Disabled for IPv6-only
   enable_nat_gateway = var.vpc_enable_nat_gateway
   single_nat_gateway = false
 
+  # Explicitly disable DNS64/NAT64 - only contacting IPv6-compatible services
+  private_subnet_enable_dns64      = false
+  public_subnet_enable_dns64       = false
+
   # DNS
-  enable_dns_hostnames = var.vpc_enable_dns_hostnames
+  enable_dns_hostnames = var.vpc_enable_dns_hostnames 
   enable_dns_support   = var.vpc_enable_dns_support
 
   # VPC Flow Logs (optional but recommended)
-  enable_flow_log                      = true
-  create_flow_log_cloudwatch_iam_role  = true
-  create_flow_log_cloudwatch_log_group = true
+  enable_flow_log                                 = true
+  create_flow_log_cloudwatch_iam_role             = true
+  create_flow_log_cloudwatch_log_group            = true
   flow_log_cloudwatch_log_group_retention_in_days = 7
 
   tags = {

@@ -141,6 +141,12 @@ variable "vpc_enable_ipv6" {
   default     = true
 }
 
+variable "vpc_ipv6_native" {
+  description = "Only IPv6"
+  type = bool
+  default = false
+}
+
 variable "vpc_enable_nat_gateway" {
   description = "Enable NAT Gateway for VPC"
   type        = bool

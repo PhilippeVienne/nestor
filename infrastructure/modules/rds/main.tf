@@ -43,8 +43,9 @@ resource "aws_db_subnet_group" "main" {
 
 # Random password for master user
 resource "random_password" "master" {
-  length  = 32
-  special = true
+  length           = 32
+  special          = true
+  override_special = "!#$%&*()-_=+[]{}<>:?"
 }
 
 # Store password in Secrets Manager
@@ -104,8 +105,8 @@ resource "aws_rds_cluster" "aurora" {
 
   # Monitoring
   enabled_cloudwatch_logs_exports = var.enabled_cloudwatch_logs_exports
-  apply_immediately              = var.apply_immediately
-  deletion_protection            = var.deletion_protection
+  apply_immediately               = var.apply_immediately
+  deletion_protection             = var.deletion_protection
 
   # Parameter groups
   db_cluster_parameter_group_name = var.cluster_parameter_group_name != null ? var.cluster_parameter_group_name : aws_rds_cluster_parameter_group.aurora[0].name
@@ -132,7 +133,7 @@ resource "aws_rds_cluster_instance" "aurora" {
   # Monitoring
   monitoring_interval = var.monitoring_interval
   monitoring_role_arn = var.monitoring_interval > 0 ? aws_iam_role.rds_monitoring[0].arn : null
-  
+
   performance_insights_enabled          = var.performance_insights_enabled
   performance_insights_retention_period = var.performance_insights_enabled ? var.performance_insights_retention_period : null
 
@@ -149,14 +150,14 @@ resource "aws_db_instance" "main" {
   identifier = var.identifier
 
   # Engine
-  engine               = "postgres"
-  engine_version       = var.engine_version
-  instance_class       = var.instance_class
-  allocated_storage    = var.allocated_storage
+  engine                = "postgres"
+  engine_version        = var.engine_version
+  instance_class        = var.instance_class
+  allocated_storage     = var.allocated_storage
   max_allocated_storage = var.max_allocated_storage
-  storage_type         = var.storage_type
-  storage_encrypted    = var.storage_encrypted
-  kms_key_id           = var.kms_key_id
+  storage_type          = var.storage_type
+  storage_encrypted     = var.storage_encrypted
+  kms_key_id            = var.kms_key_id
 
   # Database
   db_name  = var.database_name
@@ -171,23 +172,23 @@ resource "aws_db_instance" "main" {
 
   # Backup
   backup_retention_period   = var.backup_retention_period
-  backup_window            = var.backup_window
-  delete_automated_backups = var.delete_automated_backups
-  skip_final_snapshot      = var.skip_final_snapshot
+  backup_window             = var.backup_window
+  delete_automated_backups  = var.delete_automated_backups
+  skip_final_snapshot       = var.skip_final_snapshot
   final_snapshot_identifier = var.skip_final_snapshot ? null : "${var.identifier}-final-snapshot-${formatdate("YYYY-MM-DD-hhmm", timestamp())}"
 
   # Maintenance
-  maintenance_window              = var.maintenance_window
-  auto_minor_version_upgrade      = var.auto_minor_version_upgrade
-  allow_major_version_upgrade     = var.allow_major_version_upgrade
-  apply_immediately              = var.apply_immediately
-  deletion_protection            = var.deletion_protection
+  maintenance_window          = var.maintenance_window
+  auto_minor_version_upgrade  = var.auto_minor_version_upgrade
+  allow_major_version_upgrade = var.allow_major_version_upgrade
+  apply_immediately           = var.apply_immediately
+  deletion_protection         = var.deletion_protection
 
   # Monitoring
-  enabled_cloudwatch_logs_exports = var.enabled_cloudwatch_logs_exports
-  monitoring_interval            = var.monitoring_interval
-  monitoring_role_arn            = var.monitoring_interval > 0 ? aws_iam_role.rds_monitoring[0].arn : null
-  performance_insights_enabled   = var.performance_insights_enabled
+  enabled_cloudwatch_logs_exports       = var.enabled_cloudwatch_logs_exports
+  monitoring_interval                   = var.monitoring_interval
+  monitoring_role_arn                   = var.monitoring_interval > 0 ? aws_iam_role.rds_monitoring[0].arn : null
+  performance_insights_enabled          = var.performance_insights_enabled
   performance_insights_retention_period = var.performance_insights_enabled ? var.performance_insights_retention_period : null
 
   # Parameter group

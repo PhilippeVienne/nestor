@@ -181,7 +181,7 @@ variable "deletion_protection" {
 variable "enabled_cloudwatch_logs_exports" {
   description = "List of log types to export to CloudWatch"
   type        = list(string)
-  default     = ["postgresql", "upgrade"]
+  default     = ["postgresql"]
 }
 
 variable "monitoring_interval" {

@@ -35,8 +35,8 @@ data "aws_ami" "whisper_by_name" {
 # Use provided AMI ID, alias AMI, or fallback to latest by name
 locals {
   whisper_ami_id = var.whisper_ami_id != "" ? var.whisper_ami_id : (
-    length(data.aws_ami.whisper_by_alias) > 0 && data.aws_ami.whisper_by_alias[0].id != "" 
-      ? data.aws_ami.whisper_by_alias[0].id 
-      : (length(data.aws_ami.whisper_by_name) > 0 ? data.aws_ami.whisper_by_name[0].id : "")
+    try(data.aws_ami.whisper_by_alias[0].id, null) != null
+    ? data.aws_ami.whisper_by_alias[0].id
+    : try(data.aws_ami.whisper_by_name[0].id, null)
   )
 }

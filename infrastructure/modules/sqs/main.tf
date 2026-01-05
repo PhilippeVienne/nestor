@@ -22,9 +22,9 @@ resource "aws_sqs_queue" "main" {
 resource "aws_sqs_queue" "dlq" {
   count = var.enable_dlq ? 1 : 0
 
-  name                       = "${var.queue_name}-dlq"
-  message_retention_seconds  = var.dlq_message_retention_seconds
-  sqs_managed_sse_enabled    = var.enable_sse
+  name                      = "${var.queue_name}-dlq"
+  message_retention_seconds = var.dlq_message_retention_seconds
+  sqs_managed_sse_enabled   = var.enable_sse
 
   tags = merge(var.tags, {
     Purpose = "DeadLetterQueue"

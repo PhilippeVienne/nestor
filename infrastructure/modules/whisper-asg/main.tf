@@ -128,10 +128,10 @@ resource "aws_launch_template" "whisper" {
   vpc_security_group_ids = [aws_security_group.whisper.id]
 
   user_data = base64encode(templatefile("${path.module}/user_data.sh", {
-    sqs_queue_url        = var.sqs_queue_url
-    audio_bucket_name    = var.audio_bucket_name
+    sqs_queue_url          = var.sqs_queue_url
+    audio_bucket_name      = var.audio_bucket_name
     transcript_bucket_name = var.transcript_bucket_name
-    aws_region           = var.aws_region
+    aws_region             = var.aws_region
   }))
 
   block_device_mappings {
@@ -177,12 +177,12 @@ resource "aws_launch_template" "whisper" {
 
 # Auto Scaling Group
 resource "aws_autoscaling_group" "whisper" {
-  name_prefix         = "${var.name_prefix}-whisper-"
-  vpc_zone_identifier = var.subnet_ids
-  min_size            = var.asg_min_size
-  max_size            = var.asg_max_size
-  desired_capacity    = var.asg_desired_capacity
-  health_check_type   = "EC2"
+  name_prefix               = "${var.name_prefix}-whisper-"
+  vpc_zone_identifier       = var.subnet_ids
+  min_size                  = var.asg_min_size
+  max_size                  = var.asg_max_size
+  desired_capacity          = var.asg_desired_capacity
+  health_check_type         = "EC2"
   health_check_grace_period = 300
 
   launch_template {
@@ -215,7 +215,7 @@ resource "aws_autoscaling_policy" "scale_up" {
   name                   = "${var.name_prefix}-whisper-scale-up"
   scaling_adjustment     = 1
   adjustment_type        = "ChangeInCapacity"
-  cooldown              = 300
+  cooldown               = 300
   autoscaling_group_name = aws_autoscaling_group.whisper.name
 }
 
@@ -243,7 +243,7 @@ resource "aws_autoscaling_policy" "scale_down" {
   name                   = "${var.name_prefix}-whisper-scale-down"
   scaling_adjustment     = -1
   adjustment_type        = "ChangeInCapacity"
-  cooldown              = 300
+  cooldown               = 300
   autoscaling_group_name = aws_autoscaling_group.whisper.name
 }
 
