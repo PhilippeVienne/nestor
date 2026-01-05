@@ -6,7 +6,8 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Install Python dependencies with CUDA support
+# Note: CUDA libraries are large (~5-6GB) but necessary for GPU acceleration
 RUN pip install --no-cache-dir \
     boto3==1.34.19 \
     openai-whisper==20231117 \

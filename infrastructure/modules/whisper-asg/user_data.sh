@@ -12,10 +12,11 @@ export AWS_REGION=${aws_region}
     -s \
     -c default
 
-# Run Whisper processor Docker container
+# Run Whisper processor Docker container with GPU support
 docker run -d \
     --name whisper-processor \
     --restart unless-stopped \
+    --gpus all \
     -e AWS_REGION=${aws_region} \
     -e SQS_QUEUE_URL=${sqs_queue_url} \
     -e AUDIO_BUCKET_NAME=${audio_bucket_name} \
