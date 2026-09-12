@@ -1,0 +1,16 @@
+# Chaque sous-projet a son propre .gitignore ; ceci couvre la racine et sert
+# de garde-fou si l'un d'eux est deplace.
+
+# Artefacts de build
+/nestord/target/
+node_modules/
+/web/dist/
+/mobile/dist/
+
+# Echantillons audio generes pour choisir la voix TTS : reproductibles, lourds,
+# et sans valeur une fois la voix choisie.
+/samples_voix/
+
+# Logs et fichiers systeme
+*.log
+.DS_Store

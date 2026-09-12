@@ -1,0 +1,126 @@
+//! nestord : daemon backend de "Nestor", l'assistant vocal local pour Claude Code.
+//! Orchestre l'audio local, pilote un sous-processus `claude` headless et
+//! expose une API WebSocket a l'UI (Antigravity) sur `127.0.0.1:8340/ws`.
+
+#[cfg(feature = "full-audio")]
+mod audio;
+mod claude_process;
+mod mcp;
+mod mission;
+mod protocol;
+mod usage;
+mod ws;
+
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, OnceLock};
+
+use axum::routing::{get, post};
+use axum::Router;
+use tokio::sync::broadcast;
+use tower_http::cors::CorsLayer;
+
+#[cfg(not(feature = "full-audio"))]
+use protocol::DaemonStatus;
+use protocol::ServerEvent;
+use ws::AppState;
+
+const LISTEN_ADDR: &str = "127.0.0.1:8340";
+
+/// Config MCP passee au CLI `claude` : elle pointe vers notre propre serveur
+/// HTTP, d'ou l'obligation d'ecouter avant de spawner le sous-processus.
+fn write_mcp_config() -> anyhow::Result<PathBuf> {
+    let path = std::env::temp_dir().join("nestord-mcp.json");
+    let config = serde_json::json!({
+        "mcpServers": {
+            "nestor": { "type": "http", "url": format!("http://{LISTEN_ADDR}/mcp") }
+        }
+    });
+    std::fs::write(&path, serde_json::to_vec_pretty(&config)?)?;
+    Ok(path)
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("nestord=info")),
+        )
+        .init();
+
+    let (events_tx, _) = broadcast::channel::<ServerEvent>(256);
+    let barge_in_gen = Arc::new(AtomicU64::new(0));
+    let speaking_until_ms = Arc::new(AtomicU64::new(0));
+    let usage = Arc::new(usage::UsageState::default());
+
+    // La session conversationnelle n'existe pas encore : elle est renseignee
+    // apres le demarrage du serveur HTTP, cf. plus bas.
+    let claude_cell: Arc<OnceLock<claude_process::ClaudeHandle>> = Arc::new(OnceLock::new());
+
+    // Audio micro (front -> serveur), en frames binaires PCM16LE. Existe
+    // meme sans `full-audio` (cout negligeable) pour eviter de feature-gater
+    // `AppState`. L'audio TTS (serveur -> front) transite en JSON, cf. ws.rs.
+    let (mic_tx, mic_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
+
+    let missions = Arc::new(mission::MissionManager::new(
+        events_tx.clone(),
+        claude_cell.clone(),
+        usage.clone(),
+    ));
+
+    let state = Arc::new(AppState {
+        events_tx: events_tx.clone(),
+        claude: claude_cell.clone(),
+        barge_in_gen: barge_in_gen.clone(),
+        mic_tx,
+        speaking_until_ms: speaking_until_ms.clone(),
+        missions,
+        usage: usage.clone(),
+    });
+
+    let app = Router::new()
+        .route("/ws", get(ws::ws_handler))
+        .route("/mcp", post(mcp::mcp_handler))
+        .layer(CorsLayer::permissive())
+        .with_state(state);
+
+    let addr: SocketAddr = LISTEN_ADDR.parse()?;
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    tracing::info!(%addr, "nestord demarre, WebSocket sur /ws et MCP sur /mcp");
+    let server = tokio::spawn(async move { axum::serve(listener, app).await });
+
+    // Le serveur ecoute : le CLI peut maintenant se connecter a notre MCP.
+    let mcp_config = write_mcp_config()?;
+
+    #[cfg(feature = "full-audio")]
+    let (tts_tx, tts_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    #[cfg(not(feature = "full-audio"))]
+    let tts_tx: Option<tokio::sync::mpsc::UnboundedSender<String>> = None;
+
+    let claude = claude_process::spawn(
+        events_tx.clone(),
+        #[cfg(feature = "full-audio")]
+        Some(tts_tx),
+        #[cfg(not(feature = "full-audio"))]
+        tts_tx,
+        usage.clone(),
+        Some(mcp_config.as_path()),
+    )?;
+    let _ = claude_cell.set(claude.clone());
+
+    #[cfg(feature = "full-audio")]
+    audio::spawn(events_tx.clone(), claude, mic_rx, tts_rx, barge_in_gen, speaking_until_ms)?;
+    #[cfg(not(feature = "full-audio"))]
+    drop(mic_rx);
+
+    // En mode texte seul (sans `full-audio`), l'etat de repos par defaut est
+    // Idle ; le pipeline audio (quand actif) bascule lui-meme sur Listening.
+    #[cfg(not(feature = "full-audio"))]
+    let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Idle });
+
+    server.await??;
+
+    Ok(())
+}

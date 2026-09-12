@@ -1,0 +1,27 @@
+[package]
+name = "nestord"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+axum = { version = "0.8.9", features = ["ws"] }
+base64 = "0.23.1"
+futures-util = "0.3.34"
+ort = { version = "2.0.0-rc.13", features = ["cuda"], optional = true }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["full"] }
+tower-http = { version = "0.7.1", features = ["cors"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+whisper-rs = { version = "0.16.0", features = ["cuda"], optional = true }
+
+[features]
+default = []
+# Pipeline VAD/STT/TTS complet (ort+CUDA, whisper-rs+CUDA). La capture micro et
+# la lecture audio sont geres par le front (Antigravity) : l'audio transite en
+# frames binaires WebSocket (PCM16LE), voir docs/audio-protocol.md.
+# Desactive par defaut pour permettre de builder/tester le daemon (subprocess claude + WebSocket)
+# sans dependre de CUDA sur toutes les machines.
+full-audio = ["dep:ort", "dep:whisper-rs"]
