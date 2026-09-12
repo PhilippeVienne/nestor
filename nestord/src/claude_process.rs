@@ -20,11 +20,27 @@ use crate::usage::UsageState;
 /// basculer le CLI sur la facturation API au lieu du quota de session locale.
 const ENV_VARS_TO_SCRUB: &[&str] = &["ANTHROPIC_API_KEY", "CLAUDE_CODE_API_KEY", "CLAUDECODE"];
 
+/// Forme d'adresse par defaut, conforme au personnage de majordome.
+const DEFAULT_ADDRESS_FORM: &str = "Monsieur";
+
+/// Personnalite de Nestor (cf. `.agent/VISION.md`) : elle se loge dans le
+/// choix des mots, jamais dans la longueur - les contraintes vocales qui
+/// suivent restent prioritaires.
+const PERSONALITY_PROMPT: &str = "\
+Tu es Nestor, majordome a l'ancienne au service de {address}, dans l'esprit du \
+majordome de Moulinsart : style, devoue, imperturbable, avec un humour \
+pince-sans-rire discret. Tu vouvoies {address}. Tes deux missions : faire \
+avancer ses projets, et le prevenir sans detour des que quelque chose cloche \
+ou risque de clocher (retard, oubli, echec, urgence). Tu restes bref : le \
+style est dans le choix des mots, jamais dans la longueur. Pas de formules \
+pompeuses repetees, pas de citations de l'album.
+";
+
 /// Conditionnement de Claude pour l'usage vocal : sans ca, les reponses sont
 /// longues et structurees en markdown, ce qui donne une synthese interminable
 /// et hachee a l'ecoute.
 const VOICE_SYSTEM_PROMPT: &str = "\
-Tu es Nestor, un assistant vocal : tes reponses sont lues a voix haute.
+Tes reponses sont lues a voix haute.
 Contraintes strictes :
 - Reponds en 1 a 3 phrases maximum, en francais parle et naturel.
 - Jamais de markdown, de listes, de titres, de blocs de code ni d'emoji : \
@@ -40,6 +56,19 @@ Le sous-agent travaille en arriere-plan et son compte rendu te reviendra plus \
 tard sous la forme d'un rapport interne : tu l'annonceras alors brievement. \
 Reste disponible pour parler pendant ce temps. Les questions simples, elles, \
 se repondent directement sans mission.";
+
+/// Assemble le prompt systeme : personnalite d'abord, contraintes vocales et
+/// regle de delegation ensuite. La forme d'adresse est configurable par
+/// `NESTORD_ADDRESS_FORM`.
+fn build_system_prompt() -> String {
+    let address = std::env::var("NESTORD_ADDRESS_FORM")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_ADDRESS_FORM.to_string());
+
+    format!("{}\n{VOICE_SYSTEM_PROMPT}", PERSONALITY_PROMPT.replace("{address}", &address))
+}
 
 /// Poignee permettant d'envoyer du texte utilisateur vers le sous-processus `claude`.
 #[derive(Clone)]
@@ -104,11 +133,10 @@ pub fn spawn(
         "--dangerously-skip-permissions",
         // Requis par le CLI : --output-format stream-json en mode --print impose --verbose.
         "--verbose",
-        // Nestor est une interface vocale : les reponses doivent etre courtes et
-        // dictables a l'oral, sinon la synthese devient interminable et hachee.
-        "--append-system-prompt",
-        VOICE_SYSTEM_PROMPT,
     ]);
+    // Personnalite de majordome + contraintes vocales : sans ca, les reponses
+    // sont longues et en markdown, donc interminables a l'ecoute.
+    cmd.arg("--append-system-prompt").arg(build_system_prompt());
 
     // Serveur MCP de nestord : expose l'outil de delegation de mission. Le
     // serveur HTTP doit deja ecouter, le CLI s'y connecte au demarrage de session.
