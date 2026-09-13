@@ -52,7 +52,7 @@ pub struct JudgeConfig {
     pub confirm_threshold: u8,
     /// Score (0-100) a partir duquel l'action est refusee sans appel possible.
     pub reject_threshold: u8,
-    /// Delai maximal d'attente d'Ollama avant de laisser passer (fail-open).
+    /// Delai maximal d'attente d'Ollama avant d'exiger une confirmation par prudence (fail-safe).
     pub timeout_ms: u64,
 }
 

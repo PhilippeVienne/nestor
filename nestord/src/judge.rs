@@ -80,8 +80,12 @@ pub struct Judgement {
 
 /// Evalue une action (message utilisateur ou description de mission) aupres
 /// du juge Ollama local. En cas d'echec (Ollama injoignable, reponse
-/// inexploitable, timeout), laisse passer (fail-open) : un juge indisponible
-/// ne doit pas bloquer tout Nestor.
+/// inexploitable, timeout), ne laisse PAS passer silencieusement : sans
+/// verdict, on ne sait rien du risque reel, donc on retombe sur une demande
+/// de confirmation systematique (fail-safe) plutot qu'un blocage total
+/// (fail-closed, qui paralyserait Nestor si Ollama n'est pas lance en
+/// permanence) ou un laisser-passer aveugle (fail-open, qui annulerait tout
+/// l'interet du juge des qu'il tombe).
 pub async fn evaluate(config: &JudgeConfig, intent: &str, action: &str) -> Judgement {
     if !config.enabled {
         return Judgement { decision: Decision::Allow, verdict: None };
@@ -108,8 +112,15 @@ pub async fn evaluate(config: &JudgeConfig, intent: &str, action: &str) -> Judge
             Judgement { decision, verdict: Some(verdict) }
         }
         Err(err) => {
-            tracing::warn!(?err, "juge de conscience indisponible, action laissee passer (fail-open)");
-            Judgement { decision: Decision::Allow, verdict: None }
+            tracing::warn!(?err, "juge de conscience indisponible, confirmation demandee par prudence (fail-safe)");
+            Judgement {
+                decision: Decision::Confirm,
+                verdict: Some(Verdict {
+                    risk_score: config.confirm_threshold,
+                    category: "judge_unavailable".to_string(),
+                    rationale: "le juge de conscience local est indisponible, impossible d'evaluer le risque".to_string(),
+                }),
+            }
         }
     }
 }
