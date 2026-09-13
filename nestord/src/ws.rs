@@ -103,7 +103,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
         }
         let ids: Vec<i64> = due.iter().map(|t| t.id).collect();
         let report = crate::todo::build_reminder_report(&due);
-        if brain_for_nudge.send_user_message(&report).await.is_ok() {
+        if brain_for_nudge.send_internal_report(&report).await.is_ok() {
             let _ = todos.mark_notified(&ids);
         }
     });

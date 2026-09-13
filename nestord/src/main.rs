@@ -7,6 +7,7 @@ mod audio;
 mod brain;
 mod claude_process;
 mod config;
+mod judge;
 mod mcp;
 mod mission;
 mod protocol;

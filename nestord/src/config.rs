@@ -24,6 +24,7 @@ pub struct Config {
     pub places: Vec<Place>,
     pub quiet_hours: QuietHours,
     pub wake: WakeConfig,
+    pub judge: JudgeConfig,
 }
 
 impl Default for Config {
@@ -33,6 +34,37 @@ impl Default for Config {
             places: Vec::new(),
             quiet_hours: QuietHours::default(),
             wake: WakeConfig::default(),
+            judge: JudgeConfig::default(),
+        }
+    }
+}
+
+/// Juge de conscience local (LLM Ollama), porte de `agy-plugin-guardrail` :
+/// evalue le risque d'un message utilisateur ou d'une mission avant de la
+/// lancer. Cf. `judge.rs`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct JudgeConfig {
+    pub enabled: bool,
+    pub ollama_host: String,
+    pub model: String,
+    /// Score (0-100) a partir duquel une confirmation humaine est exigee.
+    pub confirm_threshold: u8,
+    /// Score (0-100) a partir duquel l'action est refusee sans appel possible.
+    pub reject_threshold: u8,
+    /// Delai maximal d'attente d'Ollama avant de laisser passer (fail-open).
+    pub timeout_ms: u64,
+}
+
+impl Default for JudgeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            ollama_host: "http://127.0.0.1:11434".to_string(),
+            model: "llama3.2:1b".to_string(),
+            confirm_threshold: 60,
+            reject_threshold: 90,
+            timeout_ms: 4000,
         }
     }
 }

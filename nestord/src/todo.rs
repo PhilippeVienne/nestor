@@ -339,7 +339,7 @@ pub fn spawn_proactive_loop(
             let report = build_reminder_report(&due);
             tracing::info!(count = due.len(), "relance proactive de taches");
 
-            if let Err(err) = brain.send_user_message(&report).await {
+            if let Err(err) = brain.send_internal_report(&report).await {
                 tracing::error!(?err, "echec d'envoi du rappel proactif");
                 continue;
             }

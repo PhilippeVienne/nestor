@@ -35,7 +35,7 @@ pub async fn mcp_handler(State(state): State<Arc<AppState>>, Json(request): Json
         })),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tool_definitions() })),
-        "tools/call" => call_tool(&state, request.get("params")),
+        "tools/call" => call_tool(&state, request.get("params")).await,
         other => Err(format!("methode inconnue : {other}")),
     };
 
@@ -57,7 +57,11 @@ fn tool_definitions() -> Value {
             "description": "Delegue une tache longue (code, recherche, fichiers, tests) a un \
 sous-agent qui travaille en arriere-plan, et retourne immediatement son identifiant. \
 A utiliser des que la demande demande plus que quelques secondes de travail, pour ne pas \
-bloquer la conversation vocale. Le compte rendu arrivera plus tard dans la conversation.",
+bloquer la conversation vocale. Le compte rendu arrivera plus tard dans la conversation. \
+Un juge de conscience local evalue la description avant lancement : une mission jugee a \
+risque est refusee avec le motif - reformule ou demande confirmation explicite a \
+l'utilisateur puis rappelle l'outil avec confirmed=true. Au-dela d'un certain risque, \
+aucune confirmation n'est acceptee.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -71,6 +75,11 @@ sous-agent ne voit pas l'historique de la conversation."
                         "enum": ["claude", "agy"],
                         "description": "Backend d'execution. Par defaut claude, avec bascule \
 automatique vers agy quand le quota Claude est presque epuise."
+                    },
+                    "confirmed": {
+                        "type": "boolean",
+                        "description": "A true uniquement si l'utilisateur a explicitement \
+confirme apres un refus du juge pour risque modere. Ne pas inventer une confirmation."
                     }
                 },
                 "required": ["description"]
@@ -164,7 +173,7 @@ que confirmer l'occurrence du jour : elle reapparaitra a la prochaine echeance d
     ])
 }
 
-fn call_tool(state: &Arc<AppState>, params: Option<&Value>) -> Result<Value, String> {
+async fn call_tool(state: &Arc<AppState>, params: Option<&Value>) -> Result<Value, String> {
     let params = params.ok_or_else(|| "params manquants".to_string())?;
     let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
     let arguments = params.get("arguments").cloned().unwrap_or(Value::Null);
@@ -177,6 +186,27 @@ fn call_tool(state: &Arc<AppState>, params: Option<&Value>) -> Result<Value, Str
                 .map(str::trim)
                 .filter(|d| !d.is_empty())
                 .ok_or_else(|| "argument 'description' requis".to_string())?;
+
+            let confirmed = arguments.get("confirmed").and_then(Value::as_bool).unwrap_or(false);
+
+            let judgement = crate::judge::evaluate(&state.config.judge, description, description).await;
+            match judgement.decision {
+                crate::judge::Decision::Deny => {
+                    let rationale = judgement.verdict.map(|v| v.rationale).unwrap_or_default();
+                    return Ok(text_result(format!(
+                        "Mission refusee par le juge de conscience, risque trop eleve : {rationale}"
+                    )));
+                }
+                crate::judge::Decision::Confirm if !confirmed => {
+                    let rationale = judgement.verdict.map(|v| v.rationale).unwrap_or_default();
+                    return Ok(text_result(format!(
+                        "Le juge de conscience signale un risque modere : {rationale} Demande \
+confirmation explicite a l'utilisateur, puis rappelle start_mission avec confirmed=true si \
+il confirme."
+                    )));
+                }
+                _ => {}
+            }
 
             let requested = arguments.get("backend").and_then(Value::as_str).and_then(Backend::parse);
 

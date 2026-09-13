@@ -59,6 +59,9 @@ pub struct NestorBrain {
     agy_conversation_id: Arc<Mutex<Option<String>>>,
     is_processing: Arc<AtomicBool>,
     pending_user_message: Arc<Mutex<Option<String>>>,
+    /// Message utilisateur en attente de confirmation orale suite a un
+    /// verdict "Confirm" du juge de conscience (`judge.rs`).
+    pending_judged_message: Arc<Mutex<Option<String>>>,
 }
 
 impl NestorBrain {
@@ -81,6 +84,7 @@ impl NestorBrain {
             agy_conversation_id: Arc::new(Mutex::new(None)),
             is_processing: Arc::new(AtomicBool::new(false)),
             pending_user_message: Arc::new(Mutex::new(None)),
+            pending_judged_message: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -184,9 +188,71 @@ impl NestorBrain {
         }
     }
 
-    /// Envoie un message utilisateur a l'assistant.
-    /// Si Claude est indisponible ou epuise, bascule automatiquement sur AGY.
+    /// Envoie un message utilisateur a l'assistant, apres evaluation par le
+    /// juge de conscience local (`judge.rs`). Un rapport interne (compte
+    /// rendu de mission, rappel de tache) n'a pas a passer par le juge :
+    /// utiliser [`Self::send_internal_report`] pour ceux-la.
     pub async fn send_user_message(&self, content: &str) -> Result<()> {
+        let pending = self.pending_judged_message.lock().unwrap().take();
+        if let Some(pending) = pending {
+            if is_affirmative(content) {
+                return self.dispatch(&pending).await;
+            }
+            // Reponse ambigue ou negative : on abandonne la demande en
+            // suspens plutot que de deviner, et on traite le message comme
+            // une nouvelle demande a part entiere.
+        }
+
+        let judgement = crate::judge::evaluate(&self.config.judge, content, content).await;
+        match judgement.decision {
+            crate::judge::Decision::Allow => self.dispatch(content).await,
+            crate::judge::Decision::Confirm => {
+                let rationale = judgement.verdict.map(|v| v.rationale).unwrap_or_default();
+                *self.pending_judged_message.lock().unwrap() = Some(content.to_string());
+                let announcement = format!(
+                    "Un instant, {} - cette demande me semble a risque : {rationale} Confirmez-vous ?",
+                    self.config.address_form
+                );
+                self.announce(&announcement).await;
+                Ok(())
+            }
+            crate::judge::Decision::Deny => {
+                let rationale = judgement.verdict.map(|v| v.rationale).unwrap_or_default();
+                let announcement =
+                    format!("Je ne donnerai pas suite, {} : {rationale}", self.config.address_form);
+                self.announce(&announcement).await;
+                Ok(())
+            }
+        }
+    }
+
+    /// Envoie un rapport interne (compte rendu de mission, rappel de tache)
+    /// directement a l'assistant, sans passer par le juge de conscience : ce
+    /// n'est pas une demande de l'utilisateur mais un evenement deja survenu
+    /// ou une relance generee par nestord lui-meme.
+    pub async fn send_internal_report(&self, report: &str) -> Result<()> {
+        self.dispatch(report).await
+    }
+
+    /// Annonce un message directement (transcript + TTS), sans passer par un
+    /// tour de conversation : utilise pour les verdicts du juge, qui n'ont
+    /// pas besoin d'etre reformules par le modele.
+    async fn announce(&self, text: &str) {
+        let _ = self.events_tx.send(ServerEvent::Transcript {
+            role: Role::Assistant,
+            delta: None,
+            text: text.to_string(),
+            is_final: Some(true),
+        });
+        if let Some(ref tts_tx) = self.tts_tx {
+            let _ = tts_tx.send(text.to_string());
+        }
+    }
+
+    /// Route effectivement le message vers Claude ou AGY selon le backend
+    /// actif, avec bascule automatique en cas d'echec. Ne juge rien : c'est
+    /// le role des appelants ([`Self::send_user_message`]).
+    async fn dispatch(&self, content: &str) -> Result<()> {
         let backend = *self.active_backend.read().await;
         let is_exhausted = self.usage.is_exhausted();
 
@@ -406,6 +472,16 @@ impl TurnState {
         }
         segments
     }
+}
+
+/// Detecte une confirmation orale a une question de type "confirmez-vous ?".
+/// Volontairement permissif plutot que de faire attendre {address} un mot
+/// magique precis ; toute reponse ambigue est traitee comme un refus.
+fn is_affirmative(text: &str) -> bool {
+    let normalized = text.trim().to_ascii_lowercase();
+    const PHRASES: &[&str] =
+        &["oui", "vas-y", "vas y", "confirme", "confirmé", "je confirme", "fais-le", "fais le", "d'accord", "ok", "okay"];
+    PHRASES.iter().any(|p| normalized == *p || normalized.starts_with(&format!("{p} ")))
 }
 
 fn sanitize_for_tts(raw: &str) -> Option<String> {
