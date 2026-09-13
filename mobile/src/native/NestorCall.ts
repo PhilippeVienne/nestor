@@ -55,6 +55,16 @@ export const NestorCall = {
     return NestorCallModule.setBackend(backend);
   },
 
+  /**
+   * Demande RECORD_AUDIO et la localisation. Retourne `true` si RECORD_AUDIO
+   * est accorde (la localisation est facultative, cf. reconnaissance de lieu
+   * cote nestord).
+   */
+  async requestPermissions(): Promise<boolean> {
+    if (!NestorCallModule) return false;
+    return NestorCallModule.requestPermissions();
+  },
+
   async startCall(serverUrl: string = 'ws://10.0.2.2:8340/ws'): Promise<boolean> {
     if (!NestorCallModule) {
       console.warn('[NestorCall] Native module not available');

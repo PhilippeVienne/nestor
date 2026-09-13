@@ -146,6 +146,13 @@ export function useNestorCall() {
   }, []);
 
   const startCall = useCallback(async (serverUrl?: string) => {
+    const micGranted = await NestorCall.requestPermissions();
+    if (!micGranted) {
+      setCallState('ERROR');
+      setCallStatusDetails('Permission microphone refusée.');
+      return;
+    }
+
     setCallState('CONNECTING');
     setCallStatusDetails('Connexion à Nestor...');
     setMessages([]);
