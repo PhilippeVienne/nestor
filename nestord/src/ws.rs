@@ -24,6 +24,8 @@ pub struct AppState {
     /// Dernier lieu reconnu (`Config::place_at`) a partir de la position GPS
     /// recue du front. `None` si aucune position recue ou lieu inconnu.
     pub current_place: Arc<Mutex<Option<String>>>,
+    /// Memoire de taches (ponctuelles et recurrentes), cf. `todo.rs`.
+    pub todos: Arc<crate::todo::TodoStore>,
     /// Compteur incremente a chaque barge-in : le pipeline TTS (feature
     /// `full-audio`) l'observe pour abandonner les segments d'un tour interrompu.
     pub barge_in_gen: Arc<AtomicU64>,
@@ -81,6 +83,30 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
             return;
         }
     }
+
+    // Rappel de debut de conversation : une nouvelle connexion (appel,
+    // ouverture de l'UI) est le meilleur proxy dont on dispose pour « le
+    // debut d'une conversation ». Le cooldown de TodoStore::due_now evite le
+    // spam si plusieurs clients se connectent en peu de temps.
+    let todos = state.todos.clone();
+    let brain_for_nudge = state.brain.clone();
+    tokio::spawn(async move {
+        let due = match todos.due_now() {
+            Ok(due) => due,
+            Err(err) => {
+                tracing::error!(?err, "echec de lecture des taches dues (nudge de connexion)");
+                return;
+            }
+        };
+        if due.is_empty() {
+            return;
+        }
+        let ids: Vec<i64> = due.iter().map(|t| t.id).collect();
+        let report = crate::todo::build_reminder_report(&due);
+        if brain_for_nudge.send_user_message(&report).await.is_ok() {
+            let _ = todos.mark_notified(&ids);
+        }
+    });
 
     // Tache sortante : relaie tous les ServerEvent (JSON, y compris AudioChunk) vers ce client.
     let mut outgoing = tokio::spawn(async move {

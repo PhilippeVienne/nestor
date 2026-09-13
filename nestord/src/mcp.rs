@@ -10,6 +10,7 @@ use std::sync::Arc;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::Json;
+use chrono::TimeZone;
 use serde_json::{json, Value};
 
 use crate::mission::Backend;
@@ -101,9 +102,64 @@ connue et leur compte rendu. A utiliser quand l'utilisateur demande ou en est un
         {
             "name": "get_context",
             "description": "Donne le contexte courant : lieu reconnu (domicile, bureau, etc. si \
-connu depuis la position GPS du front), et si on est en heures calmes. A utiliser avant de \
-prendre l'initiative de parler, ou quand l'utilisateur demande ou il est cense se trouver.",
+connu depuis la position GPS du front), si on est en heures calmes, et un resume des taches en \
+attente. A utiliser avant de prendre l'initiative de parler, ou quand l'utilisateur demande ou \
+il est cense se trouver.",
             "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "todo_add",
+            "description": "Retient une tache a faire pour l'utilisateur, ponctuelle ou recurrente. \
+A utiliser des que l'utilisateur demande de se souvenir de quelque chose, mentionne une chose a \
+faire, ou une habitude a prendre. Ne demande pas de confirmation superflue : retiens directement.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Intitule bref, prononcable tel quel" },
+                    "notes": { "type": "string", "description": "Details optionnels" },
+                    "due_at": {
+                        "type": "string",
+                        "description": "Echeance au format ISO 8601 (\"2026-09-20T18:00:00\"), pour \
+une tache ponctuelle uniquement. Omis si pas d'echeance ou si recurrente."
+                    },
+                    "recurrence": {
+                        "type": "string",
+                        "description": "Pour une tache qui revient : \"daily\", \"weekly:<lun|mar|mer|jeu|ven|sam|dim>\", \
+ou \"monthly:<1-31>\". Omis pour une tache ponctuelle."
+                    }
+                },
+                "required": ["title"]
+            }
+        },
+        {
+            "name": "todo_list",
+            "description": "Liste les taches en attente. A utiliser quand l'utilisateur demande ce \
+qu'il a a faire, ou pour verifier avant d'en ajouter une similaire.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "include_done": { "type": "boolean", "description": "Inclure les taches deja terminees (defaut : non)" }
+                }
+            }
+        },
+        {
+            "name": "todo_complete",
+            "description": "Marque une tache faite. Pour une tache recurrente, cela ne fait \
+que confirmer l'occurrence du jour : elle reapparaitra a la prochaine echeance de sa regle.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "integer", "description": "Identifiant de la tache" } },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "todo_delete",
+            "description": "Supprime definitivement une tache (utilisateur qui a change d'avis, doublon, etc.).",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "integer", "description": "Identifiant de la tache" } },
+                "required": ["id"]
+            }
         }
     ])
 }
@@ -185,13 +241,88 @@ fn call_tool(state: &Arc<AppState>, params: Option<&Value>) -> Result<Value, Str
 
             let place_desc = place.unwrap_or_else(|| "lieu inconnu".to_string());
             let quiet_desc = if is_quiet { "en heures calmes" } else { "hors heures calmes" };
+            let (pending, overdue) = state.todos.summary_counts().unwrap_or((0, 0));
 
             Ok(text_result(format!(
-                "Lieu : {place_desc}. {quiet_desc} ({}-{}). Heure locale : {}.",
+                "Lieu : {place_desc}. {quiet_desc} ({}-{}). Heure locale : {}. \
+Taches en attente : {pending} (dont {overdue} en retard).",
                 state.config.quiet_hours.start,
                 state.config.quiet_hours.end,
                 now.format("%H:%M")
             )))
+        }
+        "todo_add" => {
+            let title = arguments
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .ok_or_else(|| "argument 'title' requis".to_string())?;
+
+            let notes = arguments.get("notes").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty());
+
+            let due_at = arguments
+                .get("due_at")
+                .and_then(Value::as_str)
+                .and_then(|s| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").ok())
+                .and_then(|naive| chrono::Local.from_local_datetime(&naive).single())
+                .map(|dt| dt.timestamp());
+
+            let recurrence = arguments
+                .get("recurrence")
+                .and_then(Value::as_str)
+                .and_then(crate::todo::Recurrence::parse);
+
+            if arguments.get("recurrence").and_then(Value::as_str).is_some() && recurrence.is_none() {
+                return Err("recurrence invalide : attendu daily, weekly:<jour> ou monthly:<1-31>".to_string());
+            }
+
+            let id = state
+                .todos
+                .add(title, notes, due_at, recurrence)
+                .map_err(|err| format!("echec d'enregistrement : {err}"))?;
+
+            Ok(text_result(format!("Tache #{id} retenue : {title}.")))
+        }
+        "todo_list" => {
+            let include_done = arguments.get("include_done").and_then(Value::as_bool).unwrap_or(false);
+            let items = state.todos.list(include_done).map_err(|err| format!("echec de lecture : {err}"))?;
+
+            if items.is_empty() {
+                return Ok(text_result("Aucune tache en attente.".to_string()));
+            }
+
+            let lines: Vec<String> = items
+                .iter()
+                .map(|t| {
+                    let suffix = match (&t.recurrence, t.due_at) {
+                        (Some(rule), _) => format!(" [recurrente : {rule}]"),
+                        (None, Some(due)) => format!(" [echeance {}]", crate::todo::format_due(due)),
+                        (None, None) => String::new(),
+                    };
+                    let done = if t.status == "done" { " (faite)" } else { "" };
+                    format!("#{} {}{}{}", t.id, t.title, suffix, done)
+                })
+                .collect();
+            Ok(text_result(lines.join("\n")))
+        }
+        "todo_complete" => {
+            let id = arguments.get("id").and_then(Value::as_i64).ok_or_else(|| "argument 'id' requis".to_string())?;
+            let found = state.todos.complete(id).map_err(|err| format!("echec de mise a jour : {err}"))?;
+            if found {
+                Ok(text_result(format!("Tache #{id} marquee faite.")))
+            } else {
+                Ok(text_result(format!("Tache #{id} inconnue.")))
+            }
+        }
+        "todo_delete" => {
+            let id = arguments.get("id").and_then(Value::as_i64).ok_or_else(|| "argument 'id' requis".to_string())?;
+            let found = state.todos.delete(id).map_err(|err| format!("echec de suppression : {err}"))?;
+            if found {
+                Ok(text_result(format!("Tache #{id} supprimee.")))
+            } else {
+                Ok(text_result(format!("Tache #{id} inconnue.")))
+            }
         }
         other => Err(format!("outil inconnu : {other}")),
     }

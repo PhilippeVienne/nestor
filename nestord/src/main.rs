@@ -10,6 +10,7 @@ mod config;
 mod mcp;
 mod mission;
 mod protocol;
+mod todo;
 mod usage;
 mod ws;
 
@@ -57,6 +58,7 @@ async fn main() -> anyhow::Result<()> {
     let speaking_until_ms = Arc::new(AtomicU64::new(0));
     let usage = Arc::new(usage::UsageState::default());
     let config = Arc::new(config::Config::load());
+    let todos = Arc::new(todo::TodoStore::open_default()?);
 
     // La session conversationnelle n'existe pas encore : elle est renseignee
     // apres le demarrage du serveur HTTP, cf. plus bas.
@@ -92,6 +94,7 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(AppState {
         events_tx: events_tx.clone(),
         config: config.clone(),
+        todos: todos.clone(),
         current_place: Arc::new(std::sync::Mutex::new(None)),
         barge_in_gen: barge_in_gen.clone(),
         mic_tx,
@@ -137,6 +140,8 @@ async fn main() -> anyhow::Result<()> {
     // Idle ; le pipeline audio (quand actif) bascule lui-meme sur Listening.
     #[cfg(not(feature = "full-audio"))]
     let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Idle });
+
+    todo::spawn_proactive_loop(events_tx.clone(), brain.clone(), config.clone(), todos.clone());
 
     server.await??;
 
