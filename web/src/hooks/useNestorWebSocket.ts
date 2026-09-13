@@ -9,6 +9,7 @@ import type {
   MissionItem,
   UsageInfo,
   ConnectionState,
+  BackendStatusInfo,
 } from '../types';
 import { AudioRecorder } from '../audio/audioRecorder';
 import { AudioPlayer } from '../audio/audioPlayer';
@@ -31,6 +32,11 @@ export function useNestorWebSocket({
   const [toolCalls, setToolCalls] = useState<ToolCallItem[]>([]);
   const [missions, setMissions] = useState<MissionItem[]>([]);
   const [usage, setUsage] = useState<UsageInfo | null>(null);
+  const [backendStatus, setBackendStatus] = useState<BackendStatusInfo>({
+    active_backend: 'claude',
+    is_fallback: false,
+    reason: null,
+  });
   const [isSimulated, setIsSimulated] = useState(false);
 
   // Web Audio state
@@ -327,6 +333,15 @@ export function useNestorWebSocket({
               });
               break;
             }
+
+            case 'backend_status': {
+              setBackendStatus({
+                active_backend: data.active_backend,
+                is_fallback: data.is_fallback,
+                reason: data.reason ?? null,
+              });
+              break;
+            }
           }
         } catch (err) {
           console.error('[Nestor WS] Failed to parse message:', err, event.data);
@@ -517,6 +532,13 @@ export function useNestorWebSocket({
     [sendEvent, isSimulated, isSpeakerActive]
   );
 
+  const setBackend = useCallback(
+    (backend: string) => {
+      sendEvent({ type: 'set_backend', backend });
+    },
+    [sendEvent]
+  );
+
   return {
     connectionState,
     status,
@@ -527,6 +549,8 @@ export function useNestorWebSocket({
     toolCalls,
     missions,
     usage,
+    backendStatus,
+    setBackend,
     stopMission,
     sendBargeIn,
     sendText,

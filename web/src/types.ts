@@ -61,7 +61,19 @@ export type ServerEvent =
       format?: 'wav' | 'pcm16' | 'pcm';
       sample_rate?: number;
       is_final?: boolean;
+    }
+  | {
+      type: 'backend_status';
+      active_backend: 'claude' | 'agy' | string;
+      is_fallback: boolean;
+      reason?: string | null;
     };
+
+export interface BackendStatusInfo {
+  active_backend: string;
+  is_fallback: boolean;
+  reason?: string | null;
+}
 
 export type ClientEvent =
   | {
@@ -80,6 +92,10 @@ export type ClientEvent =
       type: 'stop_mission';
       id: number;
       reason?: string;
+    }
+  | {
+      type: 'set_backend';
+      backend: 'claude' | 'agy' | 'auto' | string;
     };
 
 export interface MessageItem {

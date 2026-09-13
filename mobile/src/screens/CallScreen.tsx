@@ -107,6 +107,48 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
           <Text style={styles.callerName}>Nestor</Text>
           <Text style={styles.callTimer}>{call.callDuration}</Text>
 
+          {/* Active Backend Indicator (Claude vs Mode Réduit AGY) */}
+          <TouchableOpacity
+            style={[
+              styles.backendBadge,
+              call.backendStatus.is_fallback || call.backendStatus.active_backend === 'agy'
+                ? styles.backendBadgeAgy
+                : styles.backendBadgeClaude,
+            ]}
+            onPress={() => {
+              const isAgy =
+                call.backendStatus.is_fallback || call.backendStatus.active_backend === 'agy';
+              call.setBackend(isAgy ? 'claude' : 'agy');
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={
+                call.backendStatus.is_fallback || call.backendStatus.active_backend === 'agy'
+                  ? 'flash'
+                  : 'sparkles'
+              }
+              size={11}
+              color={
+                call.backendStatus.is_fallback || call.backendStatus.active_backend === 'agy'
+                  ? '#fbbf24'
+                  : '#818cf8'
+              }
+            />
+            <Text
+              style={[
+                styles.backendBadgeText,
+                call.backendStatus.is_fallback || call.backendStatus.active_backend === 'agy'
+                  ? styles.backendTextAgy
+                  : styles.backendTextClaude,
+              ]}
+            >
+              {call.backendStatus.is_fallback || call.backendStatus.active_backend === 'agy'
+                ? '⚡ Mode Réduit (AGY)'
+                : 'Claude Code'}
+            </Text>
+          </TouchableOpacity>
+
           {/* Audio Route Indicator */}
           <TouchableOpacity
             style={styles.audioRoutePill}
@@ -317,6 +359,35 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     marginTop: 2,
     fontVariant: ['tabular-nums'],
+  },
+  backendBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  backendBadgeAgy: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+  },
+  backendBadgeClaude: {
+    backgroundColor: 'rgba(99, 102, 241, 0.15)',
+    borderColor: 'rgba(99, 102, 241, 0.35)',
+  },
+  backendBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  backendTextAgy: {
+    color: '#fbbf24',
+  },
+  backendTextClaude: {
+    color: '#a5b4fc',
   },
   audioRoutePill: {
     flexDirection: 'row',

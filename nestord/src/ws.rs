@@ -35,10 +35,14 @@ pub struct AppState {
     pub missions: Arc<crate::mission::MissionManager>,
     /// Consommation du quota de la session, pour l'instantane de connexion.
     pub usage: Arc<crate::usage::UsageState>,
+    /// Moteur conversationnel unifie (Claude Code avec repli automatique sur AGY).
+    pub brain: Arc<crate::brain::NestorBrain>,
 }
 
 fn connection_snapshot(state: &AppState) -> Vec<ServerEvent> {
     let mut events = Vec::new();
+
+    events.push(state.brain.snapshot());
 
     if let Some((five_hour, seven_day, resets_at)) = state.usage.snapshot() {
         events.push(ServerEvent::Usage { five_hour, seven_day, resets_at });
@@ -87,11 +91,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     });
 
     let events_tx = state.events_tx.clone();
-    let claude = state.claude.clone();
     let barge_in_gen = state.barge_in_gen.clone();
     let mic_tx = state.mic_tx.clone();
     let speaking_until_ms = state.speaking_until_ms.clone();
     let missions = state.missions.clone();
+    let brain = state.brain.clone();
 
     // Tache entrante : traite les ClientEvent (JSON) et l'audio micro (binaire).
     let mut incoming = tokio::spawn(async move {
@@ -123,14 +127,13 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                             is_final: Some(true),
                         });
                         let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Thinking });
-                        match claude.get() {
-                            Some(claude) => {
-                                if let Err(err) = claude.send_user_message(&content).await {
-                                    tracing::error!(?err, "echec d'envoi du texte vers claude");
-                                }
-                            }
-                            None => tracing::warn!("session claude pas encore prete, texte ignore"),
+                        if let Err(err) = brain.send_user_message(&content).await {
+                            tracing::error!(?err, "echec d'envoi du message utilisateur");
                         }
+                    }
+                    Ok(ClientEvent::SetBackend { backend }) => {
+                        tracing::info!(backend, "changement de backend demande par le client");
+                        brain.set_backend(&backend).await;
                     }
                     Ok(ClientEvent::StopMission { id, reason }) => {
                         let reason = reason

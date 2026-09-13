@@ -13,15 +13,13 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{broadcast, mpsc};
 
+use crate::config::Config;
 use crate::protocol::{DaemonStatus, Role, ServerEvent, ToolCallStatus};
 use crate::usage::UsageState;
 
 /// Variables d'environnement a purger avant le spawn : leur presence ferait
 /// basculer le CLI sur la facturation API au lieu du quota de session locale.
 const ENV_VARS_TO_SCRUB: &[&str] = &["ANTHROPIC_API_KEY", "CLAUDE_CODE_API_KEY", "CLAUDECODE"];
-
-/// Forme d'adresse par defaut, conforme au personnage de majordome.
-const DEFAULT_ADDRESS_FORM: &str = "Monsieur";
 
 /// Personnalite de Nestor (cf. `.agent/VISION.md`) : elle se loge dans le
 /// choix des mots, jamais dans la longueur - les contraintes vocales qui
@@ -58,16 +56,13 @@ Reste disponible pour parler pendant ce temps. Les questions simples, elles, \
 se repondent directement sans mission.";
 
 /// Assemble le prompt systeme : personnalite d'abord, contraintes vocales et
-/// regle de delegation ensuite. La forme d'adresse est configurable par
-/// `NESTORD_ADDRESS_FORM`.
-fn build_system_prompt() -> String {
-    let address = std::env::var("NESTORD_ADDRESS_FORM")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| DEFAULT_ADDRESS_FORM.to_string());
-
-    format!("{}\n{VOICE_SYSTEM_PROMPT}", PERSONALITY_PROMPT.replace("{address}", &address))
+/// regle de delegation ensuite. La forme d'adresse vient de la configuration
+/// (`config.toml`, ou `NESTORD_ADDRESS_FORM` qui a priorite dessus).
+fn build_system_prompt(config: &Config) -> String {
+    format!(
+        "{}\n{VOICE_SYSTEM_PROMPT}",
+        PERSONALITY_PROMPT.replace("{address}", &config.address_form)
+    )
 }
 
 /// Poignee permettant d'envoyer du texte utilisateur vers le sous-processus `claude`.
@@ -100,6 +95,7 @@ impl ClaudeHandle {
 
     /// Variante bloquante de [`Self::send_user_message`], pour un appel depuis
     /// un thread synchrone (ex: la boucle d'ecoute audio, hors executeur tokio).
+    #[allow(dead_code)]
     pub fn send_user_message_blocking(&self, content: &str) -> Result<()> {
         let line = serde_json::json!({
             "type": "user",
@@ -121,6 +117,8 @@ pub fn spawn(
     tts_tx: Option<mpsc::UnboundedSender<String>>,
     usage: Arc<UsageState>,
     mcp_config_path: Option<&std::path::Path>,
+    brain: Arc<crate::brain::NestorBrain>,
+    config: Arc<Config>,
 ) -> Result<ClaudeHandle> {
     let mut cmd = Command::new("claude");
     cmd.args([
@@ -136,7 +134,7 @@ pub fn spawn(
     ]);
     // Personnalite de majordome + contraintes vocales : sans ca, les reponses
     // sont longues et en markdown, donc interminables a l'ecoute.
-    cmd.arg("--append-system-prompt").arg(build_system_prompt());
+    cmd.arg("--append-system-prompt").arg(build_system_prompt(&config));
 
     // Serveur MCP de nestord : expose l'outil de delegation de mission. Le
     // serveur HTTP doit deja ecouter, le CLI s'y connecte au demarrage de session.
@@ -166,16 +164,23 @@ pub fn spawn(
     tokio::spawn(writer_task(stdin, stdin_rx));
 
     // Tache de lecture : parsing au fil de l'eau du stdout (stream_event/text_delta).
-    tokio::spawn(reader_task(stdout, events_tx.clone(), tts_tx, usage));
+    tokio::spawn(reader_task(stdout, events_tx.clone(), tts_tx, usage, brain.clone()));
 
-    // Tache de lecture stderr : simple relais vers les logs.
-    tokio::spawn(stderr_task(stderr));
+    // Tache de lecture stderr : simple relais vers les logs et detection d'erreur de quota.
+    tokio::spawn(stderr_task(stderr, brain.clone()));
 
-    // Supervision : attend la fin du processus pour logguer le code de sortie.
+    // Supervision : attend la fin du processus pour logguer le code de sortie et declencher fallback.
+    let brain_sup = brain.clone();
     tokio::spawn(async move {
         match child.wait().await {
-            Ok(status) => tracing::warn!(?status, "le processus claude s'est termine"),
-            Err(err) => tracing::error!(?err, "erreur en attendant la fin du processus claude"),
+            Ok(status) => {
+                tracing::warn!(?status, "le processus claude s'est termine");
+                brain_sup.trigger_fallback("Processus Claude termine").await;
+            }
+            Err(err) => {
+                tracing::error!(?err, "erreur en attendant la fin du processus claude");
+                brain_sup.trigger_fallback("Erreur processus Claude").await;
+            }
         }
     });
 
@@ -196,10 +201,13 @@ async fn writer_task(mut stdin: ChildStdin, mut rx: mpsc::Receiver<String>) {
     }
 }
 
-async fn stderr_task(stderr: tokio::process::ChildStderr) {
+async fn stderr_task(stderr: tokio::process::ChildStderr, brain: Arc<crate::brain::NestorBrain>) {
     let mut lines = BufReader::new(stderr).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         tracing::warn!(target: "claude::stderr", "{line}");
+        if line.contains("session limit") || line.contains("Credit balance is too low") || line.contains("rate limit") {
+            brain.trigger_fallback("Session Claude limitee (stderr)").await;
+        }
     }
 }
 
@@ -276,6 +284,7 @@ async fn reader_task(
     events_tx: broadcast::Sender<ServerEvent>,
     tts_tx: Option<mpsc::UnboundedSender<String>>,
     usage: Arc<UsageState>,
+    brain: Arc<crate::brain::NestorBrain>,
 ) {
     let mut lines = BufReader::new(stdout).lines();
     let mut acc = TurnState::default();
@@ -302,30 +311,37 @@ async fn reader_task(
             }
         };
 
-        handle_stream_value(&value, &mut acc, &events_tx, tts_tx.as_ref(), &usage);
+        handle_stream_value(&value, &mut acc, &events_tx, tts_tx.as_ref(), &usage, &brain).await;
     }
 }
 
 /// Parse une valeur JSON issue du stdout de `claude` et emet les
 /// `ServerEvent` correspondants (deltas texte, appels d'outils).
-///
-/// Schema reel du CLI (verifie empiriquement, cf. commentaire sur
-/// `ClaudeHandle::send_user_message`) :
-/// - `{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}}`
-///   pour le streaming caractere par caractere.
-/// - `{"type":"assistant","message":{"content":[{"type":"tool_use","id":...,"name":...,"input":...}, ...]}}`
-///   emis une fois le message assistant complet, avec l'input d'outil finalise.
-/// - `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":...}, ...]}}`
-///   pour le resultat d'execution d'un outil (retour de Claude Code lui-meme, pas l'utilisateur humain).
-/// - `{"type":"result", ...}` en toute fin de tour (apres eventuelles boucles d'outils).
-fn handle_stream_value(
+async fn handle_stream_value(
     value: &Value,
     acc: &mut TurnState,
     events_tx: &broadcast::Sender<ServerEvent>,
     tts_tx: Option<&mpsc::UnboundedSender<String>>,
     usage: &UsageState,
+    brain: &Arc<crate::brain::NestorBrain>,
 ) {
     let event_type = value.get("type").and_then(Value::as_str).unwrap_or_default();
+
+    // Detection immediate des erreurs de quota ou rate limit de session
+    let is_err = value.get("is_error").and_then(Value::as_bool).unwrap_or(false)
+        || value.get("api_error_status").and_then(Value::as_i64) == Some(429)
+        || value.pointer("/message/error").and_then(Value::as_str) == Some("rate_limit");
+
+    if is_err {
+        let msg = value
+            .get("result")
+            .and_then(Value::as_str)
+            .or_else(|| value.pointer("/message/content/0/text").and_then(Value::as_str))
+            .unwrap_or("Quota de session Claude atteint");
+        tracing::warn!(msg, "Erreur de quota Claude interceptee");
+        usage.set_exhausted(true);
+        brain.trigger_fallback(msg).await;
+    }
 
     match event_type {
         "stream_event" => {
@@ -340,6 +356,7 @@ fn handle_stream_value(
                     .and_then(Value::as_str);
 
                 if let Some(delta) = delta_text {
+                    brain.clear_pending_user_message();
                     let sentences = acc.push_delta(delta);
                     let _ = events_tx.send(ServerEvent::Transcript {
                         role: Role::Assistant,
@@ -399,6 +416,14 @@ fn handle_stream_value(
             }
         }
         "result" => {
+            // Si la reponse etait vide (ex: crash ou rejet de quota Claude),
+            // on ignore pour ne pas polluer l'UI avec un tour vide.
+            if acc.full_text.is_empty() {
+                acc.sentence_buf.clear();
+                acc.pending_tools.clear();
+                return;
+            }
+
             // Flush du reliquat (derniere phrase sans ponctuation finale, ou
             // segment reste sous MIN_TTS_SEGMENT_CHARS) vers le TTS, sinon il
             // ne serait jamais prononce.

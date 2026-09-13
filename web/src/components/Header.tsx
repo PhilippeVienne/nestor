@@ -1,6 +1,6 @@
 import React from 'react';
-import { Radio, Wifi, WifiOff, Cpu, RefreshCw, Volume2, Mic, Terminal } from 'lucide-react';
-import type { DaemonStatus, ConnectionState } from '../types';
+import { Radio, Wifi, WifiOff, Cpu, RefreshCw, Volume2, Mic, Terminal, Zap, Sparkles } from 'lucide-react';
+import type { DaemonStatus, ConnectionState, BackendStatusInfo } from '../types';
 
 interface HeaderProps {
   status: DaemonStatus;
@@ -11,6 +11,8 @@ interface HeaderProps {
   isConsoleOpen?: boolean;
   onToggleConsole?: () => void;
   runningToolsCount?: number;
+  backendStatus?: BackendStatusInfo;
+  onSetBackend?: (backend: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -22,6 +24,8 @@ export const Header: React.FC<HeaderProps> = ({
   isConsoleOpen,
   onToggleConsole,
   runningToolsCount = 0,
+  backendStatus,
+  onSetBackend,
 }) => {
   const getStatusBadge = () => {
     switch (status) {
@@ -87,6 +91,44 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
+  const getBackendBadge = () => {
+    if (!backendStatus) return null;
+    const isAgy = backendStatus.active_backend === 'agy' || backendStatus.is_fallback;
+    return (
+      <div className="relative group">
+        <button
+          onClick={() => {
+            if (onSetBackend) {
+              onSetBackend(isAgy ? 'claude' : 'agy');
+            }
+          }}
+          className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-mono transition-all border cursor-pointer ${
+            isAgy
+              ? 'bg-amber-950/80 text-amber-300 border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.25)] hover:bg-amber-900/90'
+              : 'bg-indigo-950/70 text-indigo-300 border-indigo-500/40 hover:bg-indigo-900/80'
+          }`}
+          title={
+            isAgy
+              ? `Mode Réduit (AGY) actif.${backendStatus.reason ? ` Cause: ${backendStatus.reason}.` : ''} Cliquer pour tenter de rebasculer sur Claude.`
+              : 'Backend standard Claude Code actif. Cliquer pour forcer le Mode Réduit (AGY).'
+          }
+        >
+          {isAgy ? (
+            <>
+              <Zap className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400 animate-pulse" />
+              <span className="font-semibold tracking-wider">⚡ MODE RÉDUIT (AGY)</span>
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-indigo-400" />
+              <span className="font-semibold tracking-wider">CLAUDE CODE</span>
+            </>
+          )}
+        </button>
+      </div>
+    );
+  };
+
   return (
     <header className="w-full flex items-center justify-between px-3 sm:px-5 py-2.5 sm:py-3.5 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-xl shrink-0 z-20">
       {/* Brand & Assistant Name */}
@@ -109,9 +151,10 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Middle Status Pill */}
+      {/* Middle Status Pill + Backend Pill */}
       <div className="flex items-center gap-2">
         {getStatusBadge()}
+        {getBackendBadge()}
       </div>
 
       {/* Right controls: WebSocket badge + Simulation mode button + Mobile Console Drawer Button */}

@@ -6,6 +6,7 @@ import {
   AudioRoute,
   TranscriptEvent,
   ToolCallEvent,
+  BackendStatusEvent,
 } from '../native/NestorCall';
 
 export interface ChatMessage {
@@ -26,6 +27,10 @@ export function useNestorCall() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activeTools, setActiveTools] = useState<ToolCallEvent[]>([]);
   const [callDurationSeconds, setCallDurationSeconds] = useState<number>(0);
+  const [backendStatus, setBackendStatus] = useState<BackendStatusEvent>({
+    active_backend: 'claude',
+    is_fallback: false,
+  });
 
   const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -118,6 +123,11 @@ export function useNestorCall() {
       });
     });
 
+    const subBackend = NestorCall.onBackendStatus((e: BackendStatusEvent) => {
+      console.log('[NestorCall] BackendStatus:', e);
+      setBackendStatus(e);
+    });
+
     return () => {
       subCallState?.remove();
       subNestorState?.remove();
@@ -125,6 +135,7 @@ export function useNestorCall() {
       subAudioLevels?.remove();
       subTranscript?.remove();
       subToolCall?.remove();
+      subBackend?.remove();
     };
   }, []);
 
@@ -169,6 +180,10 @@ export function useNestorCall() {
     await NestorCall.sendTextMessage(text);
   }, []);
 
+  const setBackend = useCallback(async (backend: string) => {
+    await NestorCall.setBackend(backend);
+  }, []);
+
   return {
     callState,
     callStatusDetails,
@@ -179,6 +194,8 @@ export function useNestorCall() {
     audioLevels,
     messages,
     activeTools,
+    backendStatus,
+    setBackend,
     callDuration: formatDuration(callDurationSeconds),
     startCall,
     endCall,

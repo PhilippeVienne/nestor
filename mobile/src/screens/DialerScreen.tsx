@@ -128,6 +128,18 @@ export const DialerScreen: React.FC<DialerScreenProps> = ({
               </Text>
             </View>
           </View>
+
+          <View style={styles.featureRow}>
+            <View style={[styles.featureIconContainer, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
+              <MaterialCommunityIcons name="flash-outline" size={20} color="#fbbf24" />
+            </View>
+            <View style={styles.featureTextContainer}>
+              <Text style={styles.featureTitle}>⚡ Mode Réduit de Secours (AGY)</Text>
+              <Text style={styles.featureDesc}>
+                En cas de quota de session Claude épuisé, Nestor bascule automatiquement sur Antigravity sans rupture de dialogue.
+              </Text>
+            </View>
+          </View>
         </View>
 
         {/* Status indicator if connecting */}

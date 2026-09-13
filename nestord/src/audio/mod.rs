@@ -21,7 +21,7 @@ use anyhow::{Context, Result};
 use base64::Engine;
 use tokio::sync::{broadcast, mpsc};
 
-use crate::claude_process::ClaudeHandle;
+use crate::brain::NestorBrain;
 use crate::protocol::{DaemonStatus, Role, ServerEvent};
 
 /// Frequence d'echantillonnage attendue pour les frames binaires micro
@@ -72,7 +72,7 @@ fn models_dir() -> PathBuf {
 /// JSON sur `events_tx`).
 pub fn spawn(
     events_tx: broadcast::Sender<ServerEvent>,
-    claude: ClaudeHandle,
+    brain: Arc<NestorBrain>,
     mic_rx: mpsc::Receiver<Vec<u8>>,
     tts_rx: mpsc::UnboundedReceiver<String>,
     barge_in_gen: Arc<AtomicU64>,
@@ -90,7 +90,7 @@ pub fn spawn(
         let speaking_until_ms = speaking_until_ms.clone();
         std::thread::spawn(move || {
             if let Err(err) =
-                listen_loop(events_tx, claude, mic_rx, &vad_model, &whisper_model, speaking_until_ms)
+                listen_loop(events_tx, brain, mic_rx, &vad_model, &whisper_model, speaking_until_ms)
             {
                 tracing::error!(?err, "pipeline d'ecoute (VAD/STT) interrompu");
             }
@@ -109,10 +109,10 @@ pub fn spawn(
     Ok(())
 }
 
-/// Boucle reception PCM16 (front) -> VAD -> accumulation -> STT -> envoi a Claude.
+/// Boucle reception PCM16 (front) -> VAD -> accumulation -> STT -> envoi a Claude/AGY.
 fn listen_loop(
     events_tx: broadcast::Sender<ServerEvent>,
-    claude: ClaudeHandle,
+    brain: Arc<NestorBrain>,
     mut mic_rx: mpsc::Receiver<Vec<u8>>,
     vad_model: &std::path::Path,
     whisper_model: &std::path::Path,
@@ -250,9 +250,7 @@ fn listen_loop(
                                 text: text.clone(),
                                 is_final: Some(true),
                             });
-                            if let Err(err) = claude.send_user_message_blocking(&text) {
-                                tracing::error!(?err, "echec d'envoi de la transcription a claude");
-                            }
+                            brain.send_user_message_from_audio(&text);
                         }
                         Ok(_) => {
                             let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Listening });

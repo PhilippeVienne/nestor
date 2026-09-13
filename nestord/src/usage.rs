@@ -5,7 +5,7 @@
 //! quand le quota Claude est presque epuise, mieux vaut confier la mission a
 //! un autre backend que de la voir echouer en cours de route.
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use serde_json::Value;
 
@@ -18,6 +18,7 @@ pub struct UsageState {
     seven_day_permille: AtomicU32,
     resets_at: AtomicU64,
     seen: AtomicU32,
+    exhausted: AtomicBool,
 }
 
 impl UsageState {
@@ -25,9 +26,14 @@ impl UsageState {
         let info = value.get("rate_limit_info")?;
         let windows = info.get("unifiedWindows")?;
 
+        let status = info.get("status").and_then(Value::as_str);
         let five_hour = windows.pointer("/five_hour/utilization").and_then(Value::as_f64).unwrap_or(0.0) as f32;
         let seven_day = windows.pointer("/seven_day/utilization").and_then(Value::as_f64).unwrap_or(0.0) as f32;
         let resets_at = info.get("resetsAt").and_then(Value::as_u64);
+
+        if status == Some("rejected") || five_hour >= 1.0 {
+            self.exhausted.store(true, Ordering::Relaxed);
+        }
 
         self.five_hour_permille.store((five_hour * 1000.0) as u32, Ordering::Relaxed);
         self.seven_day_permille.store((seven_day * 1000.0) as u32, Ordering::Relaxed);
@@ -35,6 +41,14 @@ impl UsageState {
         self.seen.store(1, Ordering::Relaxed);
 
         Some((five_hour, seven_day, resets_at))
+    }
+
+    pub fn is_exhausted(&self) -> bool {
+        self.exhausted.load(Ordering::Relaxed)
+    }
+
+    pub fn set_exhausted(&self, is_exhausted: bool) {
+        self.exhausted.store(is_exhausted, Ordering::Relaxed);
     }
 
     /// Dernieres valeurs connues, pour l'instantane envoye a un client qui se

@@ -62,6 +62,13 @@ pub enum ServerEvent {
         format: String,
         sample_rate: u32,
     },
+    /// Etat du moteur conversationnel de Nestor (Claude vs AGY en mode reduit).
+    BackendStatus {
+        active_backend: String,
+        is_fallback: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -100,8 +107,13 @@ pub enum MissionStatus {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientEvent {
+    #[serde(alias = "interrupt")]
     BargeIn,
-    SendText { content: String },
+    #[serde(alias = "chat_message")]
+    SendText {
+        #[serde(alias = "text")]
+        content: String,
+    },
     /// Envoye par le front en plus de la frame binaire equivalente (meme
     /// audio, deux vehicules). On l'accepte pour ne pas logguer une erreur de
     /// parsing, mais on l'ignore : le canal binaire est deja traite.
@@ -117,5 +129,9 @@ pub enum ClientEvent {
         /// Motif facultatif, repris dans le compte rendu d'annulation.
         #[serde(default)]
         reason: Option<String>,
+    },
+    /// Bascule manuelle du backend conversationnel ("claude", "agy", ou "auto").
+    SetBackend {
+        backend: String,
     },
 }

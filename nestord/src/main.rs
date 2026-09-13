@@ -4,7 +4,9 @@
 
 #[cfg(feature = "full-audio")]
 mod audio;
+mod brain;
 mod claude_process;
+mod config;
 mod mcp;
 mod mission;
 mod protocol;
@@ -54,10 +56,27 @@ async fn main() -> anyhow::Result<()> {
     let barge_in_gen = Arc::new(AtomicU64::new(0));
     let speaking_until_ms = Arc::new(AtomicU64::new(0));
     let usage = Arc::new(usage::UsageState::default());
+    let config = Arc::new(config::Config::load());
 
     // La session conversationnelle n'existe pas encore : elle est renseignee
     // apres le demarrage du serveur HTTP, cf. plus bas.
     let claude_cell: Arc<OnceLock<claude_process::ClaudeHandle>> = Arc::new(OnceLock::new());
+
+    #[cfg(feature = "full-audio")]
+    let (tts_tx, tts_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    #[cfg(not(feature = "full-audio"))]
+    let tts_tx: Option<tokio::sync::mpsc::UnboundedSender<String>> = None;
+
+    let brain = Arc::new(brain::NestorBrain::new(
+        claude_cell.clone(),
+        events_tx.clone(),
+        #[cfg(feature = "full-audio")]
+        Some(tts_tx.clone()),
+        #[cfg(not(feature = "full-audio"))]
+        tts_tx.clone(),
+        usage.clone(),
+        config.clone(),
+    ));
 
     // Audio micro (front -> serveur), en frames binaires PCM16LE. Existe
     // meme sans `full-audio` (cout negligeable) pour eviter de feature-gater
@@ -78,6 +97,7 @@ async fn main() -> anyhow::Result<()> {
         speaking_until_ms: speaking_until_ms.clone(),
         missions,
         usage: usage.clone(),
+        brain: brain.clone(),
     });
 
     let app = Router::new()
@@ -94,11 +114,6 @@ async fn main() -> anyhow::Result<()> {
     // Le serveur ecoute : le CLI peut maintenant se connecter a notre MCP.
     let mcp_config = write_mcp_config()?;
 
-    #[cfg(feature = "full-audio")]
-    let (tts_tx, tts_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-    #[cfg(not(feature = "full-audio"))]
-    let tts_tx: Option<tokio::sync::mpsc::UnboundedSender<String>> = None;
-
     let claude = claude_process::spawn(
         events_tx.clone(),
         #[cfg(feature = "full-audio")]
@@ -107,11 +122,13 @@ async fn main() -> anyhow::Result<()> {
         tts_tx,
         usage.clone(),
         Some(mcp_config.as_path()),
+        brain.clone(),
+        config.clone(),
     )?;
     let _ = claude_cell.set(claude.clone());
 
     #[cfg(feature = "full-audio")]
-    audio::spawn(events_tx.clone(), claude, mic_rx, tts_rx, barge_in_gen, speaking_until_ms)?;
+    audio::spawn(events_tx.clone(), brain.clone(), mic_rx, tts_rx, barge_in_gen, speaking_until_ms)?;
     #[cfg(not(feature = "full-audio"))]
     drop(mic_rx);
 

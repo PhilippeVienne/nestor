@@ -37,11 +37,22 @@ export interface ToolCallEvent {
   status: 'running' | 'completed' | 'failed';
 }
 
+export interface BackendStatusEvent {
+  active_backend: 'claude' | 'agy' | string;
+  is_fallback: boolean;
+  reason?: string;
+}
+
 const callEmitter = NestorCallModule ? new NativeEventEmitter(NestorCallModule) : null;
 
 export const NestorCall = {
   isAvailable(): boolean {
     return Platform.OS === 'android' && !!NestorCallModule;
+  },
+
+  async setBackend(backend: string): Promise<boolean> {
+    if (!NestorCallModule) return false;
+    return NestorCallModule.setBackend(backend);
   },
 
   async startCall(serverUrl: string = 'ws://10.0.2.2:8340/ws'): Promise<boolean> {
@@ -107,5 +118,9 @@ export const NestorCall = {
 
   onToolCall(listener: (event: ToolCallEvent) => void) {
     return callEmitter?.addListener('onToolCall', listener);
+  },
+
+  onBackendStatus(listener: (event: BackendStatusEvent) => void) {
+    return callEmitter?.addListener('onBackendStatusChanged', listener);
   }
 };

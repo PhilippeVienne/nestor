@@ -21,6 +21,8 @@ export function App() {
     sendText,
     isSimulated,
     setIsSimulated,
+    backendStatus,
+    setBackend,
     isMicActive,
     toggleMic,
     isSpeakerActive,
@@ -57,6 +59,8 @@ export function App() {
         isConsoleOpen={isConsoleOpen}
         onToggleConsole={() => setIsConsoleOpen(!isConsoleOpen)}
         runningToolsCount={runningToolsCount}
+        backendStatus={backendStatus}
+        onSetBackend={setBackend}
       />
 
       {/* Main Workspace Body */}
