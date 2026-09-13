@@ -97,6 +97,13 @@ l'utilisateur demande d'arreter ou quand la mission part dans la mauvaise direct
             "description": "Liste les missions deleguees avec leur etat, leur derniere activite \
 connue et leur compte rendu. A utiliser quand l'utilisateur demande ou en est une mission.",
             "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "get_context",
+            "description": "Donne le contexte courant : lieu reconnu (domicile, bureau, etc. si \
+connu depuis la position GPS du front), et si on est en heures calmes. A utiliser avant de \
+prendre l'initiative de parler, ou quand l'utilisateur demande ou il est cense se trouver.",
+            "inputSchema": { "type": "object", "properties": {} }
         }
     ])
 }
@@ -170,6 +177,21 @@ fn call_tool(state: &Arc<AppState>, params: Option<&Value>) -> Result<Value, Str
                 })
                 .collect();
             Ok(text_result(lines.join("\n")))
+        }
+        "get_context" => {
+            let place = state.current_place.lock().unwrap().clone();
+            let now = chrono::Local::now();
+            let is_quiet = state.config.quiet_hours.contains(now.time());
+
+            let place_desc = place.unwrap_or_else(|| "lieu inconnu".to_string());
+            let quiet_desc = if is_quiet { "en heures calmes" } else { "hors heures calmes" };
+
+            Ok(text_result(format!(
+                "Lieu : {place_desc}. {quiet_desc} ({}-{}). Heure locale : {}.",
+                state.config.quiet_hours.start,
+                state.config.quiet_hours.end,
+                now.format("%H:%M")
+            )))
         }
         other => Err(format!("outil inconnu : {other}")),
     }

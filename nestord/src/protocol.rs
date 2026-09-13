@@ -138,4 +138,10 @@ pub enum ClientEvent {
     SetBackend {
         backend: String,
     },
+    /// Position GPS courante, envoyee periodiquement par le front pour
+    /// alimenter la reconnaissance de lieu (`Config::place_at`).
+    Location {
+        lat: f64,
+        lon: f64,
+    },
 }

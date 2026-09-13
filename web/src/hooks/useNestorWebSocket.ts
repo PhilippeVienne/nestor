@@ -48,6 +48,7 @@ export function useNestorWebSocket({
   const reconnectTimeoutRef = useRef<number | null>(null);
   const isExplicitCloseRef = useRef(false);
   const connectRef = useRef<() => void>(() => {});
+  const watchedPositionRef = useRef<{ lat: number; lon: number } | null>(null);
 
   // Audio players and recorders
   const audioPlayerRef = useRef<AudioPlayer | null>(null);
@@ -91,6 +92,27 @@ export function useNestorWebSocket({
     return false;
   }, []);
 
+  // Suit la position GPS pour alimenter la reconnaissance de lieu du backend
+  // (domicile, bureau...). Best-effort : silencieux si l'utilisateur refuse
+  // ou si le navigateur ne supporte pas l'API.
+  useEffect(() => {
+    if (!('geolocation' in navigator)) return;
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const location = { lat: position.coords.latitude, lon: position.coords.longitude };
+        watchedPositionRef.current = location;
+        sendEvent({ type: 'location', ...location });
+      },
+      (err) => {
+        console.debug('[Nestor] Geolocalisation indisponible:', err.message);
+      },
+      { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: 30 * 1000 }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [sendEvent]);
+
   // Send binary audio chunk to WebSocket
   const sendBinaryAudio = useCallback((buffer: ArrayBuffer) => {
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
@@ -118,6 +140,11 @@ export function useNestorWebSocket({
 
       ws.onopen = () => {
         setConnectionState('connected');
+        // Rejoue la derniere position connue : le backend n'en a pas garde
+        // trace d'une session a l'autre (etat en memoire uniquement).
+        if (watchedPositionRef.current) {
+          sendEvent({ type: 'location', ...watchedPositionRef.current });
+        }
       };
 
       ws.onmessage = (event) => {

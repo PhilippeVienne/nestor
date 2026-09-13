@@ -37,9 +37,6 @@ impl Default for Config {
     }
 }
 
-/// Pas encore consomme : reserve au contexte proactif (`context.rs`) a venir,
-/// via [`Config::place_at`].
-#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct Place {
     pub name: String,
@@ -68,6 +65,26 @@ impl Default for QuietHours {
     fn default() -> Self {
         Self { start: "22:00".to_string(), end: "07:30".to_string() }
     }
+}
+
+impl QuietHours {
+    /// Indique si `time` tombe dans la plage calme. Gere le cas ou la plage
+    /// traverse minuit (ex: 22:00 -> 07:30).
+    pub fn contains(&self, time: chrono::NaiveTime) -> bool {
+        let (Some(start), Some(end)) = (parse_hhmm(&self.start), parse_hhmm(&self.end)) else {
+            return false;
+        };
+
+        if start <= end {
+            time >= start && time < end
+        } else {
+            time >= start || time < end
+        }
+    }
+}
+
+fn parse_hhmm(value: &str) -> Option<chrono::NaiveTime> {
+    chrono::NaiveTime::parse_from_str(value.trim(), "%H:%M").ok()
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -127,7 +144,6 @@ impl Config {
     }
 
     /// Nom du lieu connu contenant ce point, s'il y en a un.
-    #[allow(dead_code)]
     pub fn place_at(&self, lat: f64, lon: f64) -> Option<&str> {
         self.places
             .iter()
@@ -170,5 +186,15 @@ mod tests {
         assert_eq!(config.place_at(48.8566, 2.3522), Some("domicile"));
         assert_eq!(config.place_at(48.8576, 2.3522), Some("domicile"));
         assert_eq!(config.place_at(48.8700, 2.3522), None);
+    }
+
+    #[test]
+    fn heures_calmes_traversant_minuit() {
+        let quiet = QuietHours::default(); // 22:00 -> 07:30
+
+        assert!(quiet.contains(chrono::NaiveTime::from_hms_opt(23, 0, 0).unwrap()));
+        assert!(quiet.contains(chrono::NaiveTime::from_hms_opt(3, 0, 0).unwrap()));
+        assert!(!quiet.contains(chrono::NaiveTime::from_hms_opt(12, 0, 0).unwrap()));
+        assert!(!quiet.contains(chrono::NaiveTime::from_hms_opt(7, 30, 0).unwrap()));
     }
 }

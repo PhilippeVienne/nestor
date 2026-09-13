@@ -11,13 +11,19 @@ use axum::extract::{State, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use crate::config::Config;
 use crate::protocol::{ClientEvent, DaemonStatus, ServerEvent};
 
 #[derive(Clone)]
 pub struct AppState {
     pub events_tx: tokio::sync::broadcast::Sender<ServerEvent>,
+    /// Configuration utilisateur (forme d'adresse, lieux, heures calmes, reveil).
+    pub config: Arc<Config>,
+    /// Dernier lieu reconnu (`Config::place_at`) a partir de la position GPS
+    /// recue du front. `None` si aucune position recue ou lieu inconnu.
+    pub current_place: Arc<Mutex<Option<String>>>,
     /// Compteur incremente a chaque barge-in : le pipeline TTS (feature
     /// `full-audio`) l'observe pour abandonner les segments d'un tour interrompu.
     pub barge_in_gen: Arc<AtomicU64>,
@@ -92,6 +98,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let speaking_until_ms = state.speaking_until_ms.clone();
     let missions = state.missions.clone();
     let brain = state.brain.clone();
+    let current_place = state.current_place.clone();
+    let config = state.config.clone();
 
     // Tache entrante : traite les ClientEvent (JSON) et l'audio micro (binaire).
     let mut incoming = tokio::spawn(async move {
@@ -144,6 +152,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                     Ok(ClientEvent::AudioIn { .. }) => {
                         // Doublon volontaire du front (meme audio que la frame binaire
                         // deja recue) : ignore pour eviter un double traitement.
+                    }
+                    Ok(ClientEvent::Location { lat, lon }) => {
+                        let place = config.place_at(lat, lon).map(str::to_string);
+                        let mut current = current_place.lock().unwrap();
+                        if *current != place {
+                            tracing::info!(?place, "changement de lieu detecte");
+                            *current = place;
+                        }
                     }
                     Err(err) => {
                         tracing::debug!(?err, raw = %text, "message client non reconnu");

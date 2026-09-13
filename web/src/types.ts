@@ -96,6 +96,11 @@ export type ClientEvent =
   | {
       type: 'set_backend';
       backend: 'claude' | 'agy' | 'auto' | string;
+    }
+  | {
+      type: 'location';
+      lat: number;
+      lon: number;
     };
 
 export interface MessageItem {
