@@ -62,29 +62,25 @@ export const DialogueStream: React.FC<DialogueStreamProps> = ({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-5"
+        className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4"
       >
         {messages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center px-4 py-8">
-            <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mb-4 shadow-[0_0_20px_rgba(6,182,212,0.15)]">
-              <Sparkles className="w-7 h-7" />
-            </div>
-            <h3 className="text-lg font-medium text-slate-100 mb-1 tracking-wide">
-              Nestor à votre service
-            </h3>
-            <p className="text-xs text-slate-400 max-w-sm mb-6 leading-relaxed">
-              Parlez dans votre micro pour interagir vocalement ou tapez votre commande au clavier.
+          <div className="h-full flex flex-col items-center justify-center text-center px-4 py-6">
+            <p className="text-sm font-medium text-slate-300 mb-1 tracking-wide">
+              À votre disposition, Monsieur.
+            </p>
+            <p className="text-xs text-slate-500 mb-6">
+              Activez le micro ou tapez votre consigne ci-dessous.
             </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-md">
+            <div className="flex flex-wrap items-center justify-center gap-2 max-w-lg">
               {suggestions.map((item, idx) => (
                 <button
                   key={idx}
                   onClick={() => onSelectSuggestion && onSelectSuggestion(item)}
-                  className="text-left text-xs bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 hover:border-cyan-500/40 text-slate-300 hover:text-cyan-300 p-2.5 rounded-lg transition-all duration-150 backdrop-blur-sm group flex items-start space-x-2"
+                  className="text-xs bg-slate-900/50 hover:bg-slate-800/80 border border-slate-800/80 hover:border-cyan-500/30 text-slate-400 hover:text-slate-200 px-3 py-1.5 rounded-full transition-all duration-150 backdrop-blur-sm"
                 >
-                  <Terminal className="w-3.5 h-3.5 text-cyan-400/60 group-hover:text-cyan-400 mt-0.5 shrink-0" />
-                  <span className="line-clamp-2">{item}</span>
+                  {item}
                 </button>
               ))}
             </div>
@@ -95,37 +91,37 @@ export const DialogueStream: React.FC<DialogueStreamProps> = ({
             return (
               <div
                 key={msg.id}
-                className={`flex gap-2 sm:gap-3 text-sm ${
+                className={`flex gap-2.5 sm:gap-3 text-sm ${
                   isUser ? 'justify-end' : 'justify-start'
                 }`}
               >
                 {!isUser && (
-                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-cyan-950/80 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shrink-0 mt-0.5 shadow-[0_0_10px_rgba(6,182,212,0.2)]">
-                    <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  <div className="w-7 h-7 rounded-full bg-cyan-950/60 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0 mt-0.5 shadow-[0_0_8px_rgba(6,182,212,0.15)]">
+                    <Sparkles className="w-3.5 h-3.5" />
                   </div>
                 )}
 
                 <div
-                  className={`relative max-w-[92%] sm:max-w-[82%] rounded-2xl px-3.5 sm:px-4 py-2.5 sm:py-3 border transition-all ${
+                  className={`relative max-w-[92%] sm:max-w-[80%] rounded-2xl px-4 py-2.5 border transition-all ${
                     isUser
-                      ? 'bg-gradient-to-r from-cyan-900/40 to-blue-900/40 border-cyan-500/30 text-slate-100 rounded-tr-none'
-                      : 'bg-slate-900/80 border-slate-800 text-slate-200 rounded-tl-none shadow-lg'
+                      ? 'bg-slate-900/90 border-cyan-500/25 text-slate-100 rounded-tr-none shadow-sm'
+                      : 'bg-slate-900/60 border-slate-800/80 text-slate-200 rounded-tl-none shadow-sm'
                   }`}
                 >
                   {/* Top Bar for message */}
-                  <div className="flex items-center justify-between gap-4 mb-1.5 pb-1 border-b border-white/5">
-                    <span className="text-[10px] font-mono tracking-wider uppercase text-slate-400">
-                      {isUser ? 'Vous (Vocal / Clavier)' : 'Nestor'}
+                  <div className="flex items-center justify-between gap-4 mb-1 text-[10px] font-mono text-slate-400">
+                    <span className="tracking-wide">
+                      {isUser ? 'Vous' : 'Nestor'}
                     </span>
                     <div className="flex items-center gap-2">
                       {isUser && !msg.isFinal && (
                         <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] bg-cyan-500/20 text-cyan-300 font-mono animate-pulse">
-                          Transcription en direct...
+                          Transcription...
                         </span>
                       )}
                       {!isUser && msg.isStreaming && (
                         <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] bg-amber-500/20 text-amber-300 font-mono animate-pulse">
-                          En cours de frappe...
+                          Écriture...
                         </span>
                       )}
                       <button
@@ -151,8 +147,8 @@ export const DialogueStream: React.FC<DialogueStreamProps> = ({
                 </div>
 
                 {isUser && (
-                  <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 shrink-0 mt-0.5">
-                    <User className="w-4 h-4" />
+                  <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700/60 flex items-center justify-center text-slate-400 shrink-0 mt-0.5">
+                    <User className="w-3.5 h-3.5" />
                   </div>
                 )}
               </div>

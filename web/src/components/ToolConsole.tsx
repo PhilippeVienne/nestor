@@ -49,69 +49,53 @@ export const ToolConsole: React.FC<ToolConsoleProps> = ({
 
   return (
     <>
-      {/* Mobile Backdrop Overlay when drawer is open */}
+      {/* Backdrop Overlay when drawer is open */}
       {isOpen && (
         <div
-          className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity"
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 transition-opacity"
           onClick={onToggle}
           aria-hidden="true"
         />
       )}
 
-      {/* Console Panel (Drawer on mobile, Sidebar on desktop) */}
+      {/* Console Panel (Slide-over drawer on right) */}
       <div
-        className={`flex flex-col border-l border-slate-800 bg-slate-950/95 backdrop-blur-xl transition-all duration-300 ${
-          isOpen
-            ? 'fixed md:relative inset-y-0 right-0 z-50 w-[85vw] max-w-sm sm:w-96 shadow-2xl md:shadow-none'
-            : 'hidden md:flex w-12'
+        className={`fixed inset-y-0 right-0 z-50 w-[90vw] max-w-sm sm:w-96 flex flex-col border-l border-slate-800 bg-slate-950/95 backdrop-blur-2xl shadow-2xl transition-transform duration-300 ease-in-out ${
+          isOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'
         }`}
       >
         {/* Header bar */}
-        <div className="flex items-center justify-between px-3 py-3 border-b border-slate-800/80 bg-slate-900/50 shrink-0">
-          <button
-            onClick={onToggle}
-            className="flex items-center gap-2 text-slate-300 hover:text-white transition-colors"
-            title={isOpen ? 'Replier la console' : 'Déplier la console'}
-          >
-            <div className="relative">
-              <Terminal className="w-4 h-4 text-cyan-400" />
-              {runningCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-400 rounded-full animate-ping" />
-              )}
-            </div>
-            {isOpen && (
-              <span className="text-xs font-mono font-semibold tracking-wider uppercase text-slate-200">
-                Console Outils
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800/80 bg-slate-900/60 shrink-0">
+          <div className="flex items-center gap-2">
+            <Terminal className="w-4 h-4 text-cyan-400" />
+            <span className="text-xs font-mono font-semibold tracking-wider uppercase text-slate-200">
+              Console d'Outils
+            </span>
+            {runningCount > 0 && (
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">
+                {runningCount} actif{runningCount > 1 ? 's' : ''}
               </span>
             )}
-          </button>
+          </div>
 
-          {isOpen && (
-            <div className="flex items-center gap-2">
-              {runningCount > 0 && (
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">
-                  {runningCount} en cours
-                </span>
-              )}
-              {toolCalls.length > 0 && onClear && (
-                <button
-                  onClick={onClear}
-                  className="text-slate-500 hover:text-rose-400 p-1 transition-colors"
-                  title="Vider la console"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              )}
-              {/* Close X button for mobile */}
+          <div className="flex items-center gap-1.5">
+            {toolCalls.length > 0 && onClear && (
               <button
-                onClick={onToggle}
-                className="md:hidden text-slate-400 hover:text-white p-1 rounded-lg"
-                title="Fermer la console"
+                onClick={onClear}
+                className="text-slate-400 hover:text-rose-400 p-1 rounded-lg transition-colors"
+                title="Vider la console"
               >
-                <X className="w-4 h-4" />
+                <Trash2 className="w-3.5 h-3.5" />
               </button>
-            </div>
-          )}
+            )}
+            <button
+              onClick={onToggle}
+              className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800/60 transition-colors"
+              title="Fermer la console"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {isOpen && (
