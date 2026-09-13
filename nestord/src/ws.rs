@@ -11,17 +11,13 @@ use axum::extract::{State, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
-use crate::claude_process::ClaudeHandle;
 use crate::protocol::{ClientEvent, DaemonStatus, ServerEvent};
 
 #[derive(Clone)]
 pub struct AppState {
     pub events_tx: tokio::sync::broadcast::Sender<ServerEvent>,
-    /// Rempli juste apres le spawn du sous-processus : le serveur HTTP doit
-    /// ecouter avant, pour que le CLI puisse s'y connecter en MCP.
-    pub claude: Arc<OnceLock<ClaudeHandle>>,
     /// Compteur incremente a chaque barge-in : le pipeline TTS (feature
     /// `full-audio`) l'observe pour abandonner les segments d'un tour interrompu.
     pub barge_in_gen: Arc<AtomicU64>,

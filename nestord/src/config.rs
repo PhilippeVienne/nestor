@@ -37,6 +37,9 @@ impl Default for Config {
     }
 }
 
+/// Pas encore consomme : reserve au contexte proactif (`context.rs`) a venir,
+/// via [`Config::place_at`].
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct Place {
     pub name: String,
@@ -124,6 +127,7 @@ impl Config {
     }
 
     /// Nom du lieu connu contenant ce point, s'il y en a un.
+    #[allow(dead_code)]
     pub fn place_at(&self, lat: f64, lon: f64) -> Option<&str> {
         self.places
             .iter()

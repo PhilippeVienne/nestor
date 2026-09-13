@@ -10,6 +10,9 @@ pub enum ServerEvent {
     State {
         status: DaemonStatus,
     },
+    /// Amplitude du flux micro, pour l'orbe reactif de l'UI. Pas encore emis
+    /// par `audio/mod.rs` (VAD/RMS a cabler cote pipeline d'entree).
+    #[allow(dead_code)]
     AudioLevels {
         rms: f32,
         peak: f32,
@@ -57,6 +60,7 @@ pub enum ServerEvent {
     /// decode `data` et lit un PCM16 mono brut a `sample_rate` Hz quand
     /// `format == "pcm16"` (evite l'ambiguite avec les frames binaires brutes,
     /// que le front interprete toujours comme du WAV).
+    #[cfg_attr(not(feature = "full-audio"), allow(dead_code))]
     AudioChunk {
         data: String,
         format: String,

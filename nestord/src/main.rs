@@ -91,7 +91,6 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(AppState {
         events_tx: events_tx.clone(),
-        claude: claude_cell.clone(),
         barge_in_gen: barge_in_gen.clone(),
         mic_tx,
         speaking_until_ms: speaking_until_ms.clone(),
