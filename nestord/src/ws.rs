@@ -7,7 +7,8 @@
 //! - Binaire (PCM16LE mono 16 kHz) : audio micro, client -> serveur uniquement.
 
 use axum::extract::ws::{Message, WebSocket};
-use axum::extract::{State, WebSocketUpgrade};
+use axum::extract::{Query, State, WebSocketUpgrade};
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -66,8 +67,24 @@ fn connection_snapshot(state: &AppState) -> Vec<ServerEvent> {
     events
 }
 
-pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+#[derive(serde::Deserialize)]
+pub struct WsAuthQuery {
+    token: Option<String>,
+}
+
+pub async fn ws_handler(
+    ws: WebSocketUpgrade,
+    Query(auth): Query<WsAuthQuery>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    if let Some(expected) = &state.config.auth_token {
+        if auth.token.as_deref() != Some(expected.as_str()) {
+            tracing::warn!("connexion /ws refusee : jeton manquant ou invalide");
+            return (StatusCode::UNAUTHORIZED, "jeton invalide").into_response();
+        }
+    }
+
+    ws.on_upgrade(move |socket| handle_socket(socket, state)).into_response()
 }
 
 async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {

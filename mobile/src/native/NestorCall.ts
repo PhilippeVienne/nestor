@@ -2,6 +2,18 @@ import { NativeModules, NativeEventEmitter, Platform } from 'react-native';
 
 const { NestorCallModule } = NativeModules;
 
+/**
+ * Ajoute le jeton d'authentification (`EXPO_PUBLIC_NESTOR_TOKEN`) en query
+ * param. Absent par defaut : nestord n'exige un jeton que si `auth_token`
+ * est configure cote serveur (cf. `nestord/src/config.rs`).
+ */
+function withAuthToken(url: string): string {
+  const token = process.env.EXPO_PUBLIC_NESTOR_TOKEN;
+  if (!token) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}token=${encodeURIComponent(token)}`;
+}
+
 export type CallState = 'IDLE' | 'CONNECTING' | 'ACTIVE' | 'ENDED' | 'ERROR';
 export type NestorState = 'idle' | 'listening' | 'thinking' | 'speaking';
 export type AudioRoute = 'EARPIECE' | 'SPEAKER' | 'BLUETOOTH' | 'WIRED_HEADSET' | 'UNKNOWN';
@@ -70,7 +82,7 @@ export const NestorCall = {
       console.warn('[NestorCall] Native module not available');
       return false;
     }
-    return NestorCallModule.startCall({ serverUrl });
+    return NestorCallModule.startCall({ serverUrl: withAuthToken(serverUrl) });
   },
 
   async endCall(): Promise<boolean> {

@@ -25,6 +25,12 @@ pub struct Config {
     pub quiet_hours: QuietHours,
     pub wake: WakeConfig,
     pub judge: JudgeConfig,
+    /// Jeton partage exige pour se connecter a `/ws` (query `?token=...`).
+    /// `NESTORD_AUTH_TOKEN` a priorite. Absent (defaut) : pas de verification,
+    /// tolerable tant que nestord n'ecoute que sur `127.0.0.1` - a definir
+    /// avant toute exposition au-dela du loopback (VPN, Tailscale...).
+    /// `/mcp` n'est jamais concerne : reserve a la boucle locale.
+    pub auth_token: Option<String>,
 }
 
 impl Default for Config {
@@ -35,6 +41,7 @@ impl Default for Config {
             quiet_hours: QuietHours::default(),
             wake: WakeConfig::default(),
             judge: JudgeConfig::default(),
+            auth_token: None,
         }
     }
 }
@@ -170,6 +177,20 @@ impl Config {
             if !form.is_empty() {
                 config.address_form = form;
             }
+        }
+
+        if let Ok(token) = std::env::var("NESTORD_AUTH_TOKEN") {
+            let token = token.trim().to_string();
+            if !token.is_empty() {
+                config.auth_token = Some(token);
+            }
+        }
+
+        if config.auth_token.is_none() {
+            tracing::warn!(
+                "aucun auth_token configure : /ws accepte toute connexion. Tolerable tant que \
+nestord n'ecoute que sur 127.0.0.1, a definir avant toute exposition reseau plus large."
+            );
         }
 
         config

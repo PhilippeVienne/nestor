@@ -14,6 +14,19 @@ import type {
 import { AudioRecorder } from '../audio/audioRecorder';
 import { AudioPlayer } from '../audio/audioPlayer';
 
+/**
+ * Ajoute le jeton d'authentification (`VITE_NESTOR_TOKEN`) en query param.
+ * Absent par defaut : nestord n'exige un jeton que si `auth_token` est
+ * configure cote serveur (cf. `nestord/src/config.rs`), tolerable tant que
+ * le daemon n'ecoute que sur 127.0.0.1.
+ */
+function withAuthToken(url: string): string {
+  const token = import.meta.env.VITE_NESTOR_TOKEN as string | undefined;
+  if (!token) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}token=${encodeURIComponent(token)}`;
+}
+
 interface UseNestorWebSocketOptions {
   url?: string;
   autoReconnect?: boolean;
@@ -134,7 +147,7 @@ export function useNestorWebSocket({
     }
 
     try {
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(withAuthToken(url));
       ws.binaryType = 'arraybuffer';
       socketRef.current = ws;
 
