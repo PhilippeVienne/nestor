@@ -394,6 +394,16 @@ class NestorCallManager private constructor(private val context: Context) {
         val buffer = ShortArray(800) // 50ms at 16kHz = 800 samples
         val byteBuffer = ByteArray(1600)
 
+        // Optimisation batterie : VAD locale basee sur l'energie RMS.
+        // Pendant les phases de silence (90%+ du temps), aucune trame n'est envoyee sur le WebSocket,
+        // ce qui permet a la puce radio (Wi-Fi / 4G / 5G) d'entrer en mode veille (DRX/low-power).
+        val ENERGY_VAD_THRESHOLD = 0.012f
+        val PREROLL_CHUNKS = 6 // 6 x 50ms = 300ms de pre-roll pour capturer l'attaque ("H" de "Hey")
+        val HANGOVER_CHUNKS = 12 // 12 x 50ms = 600ms de maintien pour couvrir les pauses naturelles
+        val prerollQueue = java.util.ArrayDeque<ByteArray>(PREROLL_CHUNKS)
+        var inVoice = false
+        var hangoverRemaining = 0
+
         while (isRecording.get() && isCallActive) {
             val readCount = audioRecord?.read(buffer, 0, buffer.size) ?: 0
             if (readCount > 0) {
@@ -415,10 +425,40 @@ class NestorCallManager private constructor(private val context: Context) {
                 val rms = sqrt(sumSquares / readCount).toFloat()
                 eventListener?.onAudioLevels(rms, peak)
 
-                // Send binary frame over WebSocket if not muted
                 if (!isMicMuted && webSocket != null) {
-                    val byteString = byteBuffer.toByteString(0, readCount * 2)
-                    webSocket?.send(byteString)
+                    val currentFrame = byteBuffer.copyOf(readCount * 2)
+
+                    if (rms >= ENERGY_VAD_THRESHOLD) {
+                        if (!inVoice) {
+                            inVoice = true
+                            // Fin du silence : envoyer le pre-roll complet d'abord
+                            while (!prerollQueue.isEmpty()) {
+                                val pre = prerollQueue.pollFirst()
+                                if (pre != null) {
+                                    webSocket?.send(pre.toByteString())
+                                }
+                            }
+                        }
+                        hangoverRemaining = HANGOVER_CHUNKS
+                        webSocket?.send(currentFrame.toByteString())
+                    } else if (inVoice) {
+                        if (hangoverRemaining > 0) {
+                            hangoverRemaining--
+                            webSocket?.send(currentFrame.toByteString())
+                        } else {
+                            inVoice = false
+                            if (prerollQueue.size >= PREROLL_CHUNKS) {
+                                prerollQueue.pollFirst()
+                            }
+                            prerollQueue.addLast(currentFrame)
+                        }
+                    } else {
+                        // En silence : aucune transmission reseau -> economie batterie drastique !
+                        if (prerollQueue.size >= PREROLL_CHUNKS) {
+                            prerollQueue.pollFirst()
+                        }
+                        prerollQueue.addLast(currentFrame)
+                    }
                 }
             }
         }
@@ -629,7 +669,12 @@ class NestorCallManager private constructor(private val context: Context) {
 
             when (type) {
                 "state" -> {
-                    val state = obj.optString("state", "idle")
+                    val state = if (obj.has("status")) obj.getString("status") else obj.optString("state", "idle")
+                    eventListener?.onNestorStateChanged(state)
+                }
+                "wake_state" -> {
+                    val active = obj.optBoolean("active", false)
+                    val state = if (active) "listening" else "idle"
                     eventListener?.onNestorStateChanged(state)
                 }
                 "audio_levels" -> {
