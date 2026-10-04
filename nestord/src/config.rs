@@ -24,6 +24,7 @@ pub struct Config {
     pub places: Vec<Place>,
     pub quiet_hours: QuietHours,
     pub wake: WakeConfig,
+    pub wake_word: WakeWordConfig,
     pub judge: JudgeConfig,
     /// Jeton partage exige pour se connecter a `/ws` (query `?token=...`).
     /// `NESTORD_AUTH_TOKEN` a priorite. Absent (defaut) : pas de verification,
@@ -40,6 +41,7 @@ impl Default for Config {
             places: Vec::new(),
             quiet_hours: QuietHours::default(),
             wake: WakeConfig::default(),
+            wake_word: WakeWordConfig::default(),
             judge: JudgeConfig::default(),
             auth_token: None,
         }
@@ -141,6 +143,37 @@ impl Default for WakeConfig {
     }
 }
 
+/// Configuration du mot-cle d'activation ("Hey Nestor").
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct WakeWordConfig {
+    /// Activer ou desactiver la detection de mot-cle.
+    pub enabled: bool,
+    /// Mots-cles reconnus pour reveiller Nestor.
+    pub words: Vec<String>,
+    /// Duree de la fenetre conversationnelle active (secondes) apres chaque reponse.
+    pub timeout_secs: u64,
+    /// Phrase d'acquittement personnalisee (defaut: "Oui, {address} ?").
+    pub ack_phrase: Option<String>,
+}
+
+impl Default for WakeWordConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            words: vec![
+                "hey nestor".to_string(),
+                "hé nestor".to_string(),
+                "eh nestor".to_string(),
+                "dis nestor".to_string(),
+                "nestor".to_string(),
+            ],
+            timeout_secs: 15,
+            ack_phrase: None,
+        }
+    }
+}
+
 impl Config {
     /// Charge la configuration, ou retourne les valeurs par defaut si le
     /// fichier est absent. Un fichier illisible ou invalide est signale mais
@@ -191,6 +224,25 @@ impl Config {
                 "aucun auth_token configure : /ws accepte toute connexion. Tolerable tant que \
 nestord n'ecoute que sur 127.0.0.1, a definir avant toute exposition reseau plus large."
             );
+        }
+
+        if let Ok(val) = std::env::var("NESTORD_WAKE_WORD_ENABLED") {
+            config.wake_word.enabled = val != "0" && val.to_ascii_lowercase() != "false";
+        }
+        if let Ok(val) = std::env::var("NESTORD_WAKE_TIMEOUT_SECS") {
+            if let Ok(secs) = val.trim().parse::<u64>() {
+                config.wake_word.timeout_secs = secs;
+            }
+        }
+        if let Ok(val) = std::env::var("NESTORD_WAKE_WORDS") {
+            let parsed: Vec<String> = val
+                .split(',')
+                .map(|w| w.trim().to_ascii_lowercase())
+                .filter(|w| !w.is_empty())
+                .collect();
+            if !parsed.is_empty() {
+                config.wake_word.words = parsed;
+            }
         }
 
         config

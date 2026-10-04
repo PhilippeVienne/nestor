@@ -53,6 +53,7 @@ pub struct NestorBrain {
     tts_tx: Option<mpsc::UnboundedSender<String>>,
     usage: Arc<UsageState>,
     config: Arc<Config>,
+    tokio_handle: tokio::runtime::Handle,
     active_backend: Arc<RwLock<ActiveBackend>>,
     is_fallback: Arc<AtomicBool>,
     fallback_reason: Arc<Mutex<Option<String>>>,
@@ -78,6 +79,7 @@ impl NestorBrain {
             tts_tx,
             usage,
             config,
+            tokio_handle: tokio::runtime::Handle::current(),
             active_backend: Arc::new(RwLock::new(ActiveBackend::Claude)),
             is_fallback: Arc::new(AtomicBool::new(false)),
             fallback_reason: Arc::new(Mutex::new(None)),
@@ -284,7 +286,7 @@ impl NestorBrain {
     pub fn send_user_message_from_audio(self: &Arc<Self>, content: &str) {
         let brain = self.clone();
         let text = content.to_string();
-        tokio::spawn(async move {
+        self.tokio_handle.spawn(async move {
             if let Err(err) = brain.send_user_message(&text).await {
                 tracing::error!(?err, "Erreur lors du traitement de la requete vocale");
             }

@@ -73,6 +73,10 @@ pub enum ServerEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
+    /// Etat du mot-cle d'activation : en veille (attend "Hey Nestor") ou actif (en dialogue).
+    WakeState {
+        active: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

@@ -60,6 +60,16 @@ export class AudioRecorder {
       const bufferSize = 4096;
       this.processorNode = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
 
+      // Optimisation batterie : VAD basee sur l'energie RMS.
+      // En silence, les trames audio ne sont pas transmises sur le WebSocket pour eviter
+      // de faire tourner continuellement le reseau et le CPU en arriere-plan.
+      const ENERGY_THRESHOLD = 0.012;
+      const PREROLL_MAX = 3; // ~255 ms de pre-roll a 16 kHz
+      const HANGOVER_MAX = 6; // ~510 ms de maintien apres la parole
+      const prerollBuffers: { buffer: ArrayBuffer; base64: string }[] = [];
+      let inVoice = false;
+      let hangoverRemaining = 0;
+
       this.processorNode.onaudioprocess = (e) => {
         if (!this.isCapturing) return;
         const inputData = e.inputBuffer.getChannelData(0);
@@ -68,18 +78,46 @@ export class AudioRecorder {
         // Downsample to target 16kHz
         const downsampled = this.downsampleBuffer(inputData, inputSampleRate, this.targetSampleRate);
 
-        // Convert Float32 to Int16 PCM (Linear 16-bit)
+        // Convert Float32 to Int16 PCM (Linear 16-bit) and compute RMS
+        let sumSquares = 0;
         const pcm16 = new Int16Array(downsampled.length);
         for (let i = 0; i < downsampled.length; i++) {
           const s = Math.max(-1, Math.min(1, downsampled[i]));
+          sumSquares += s * s;
           pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
         }
+        const rms = Math.sqrt(sumSquares / (downsampled.length || 1));
 
         if (this.onAudioChunk) {
           const buffer = pcm16.buffer;
-          // Also generate base64 version
           const base64 = this.arrayBufferToBase64(buffer);
-          this.onAudioChunk(buffer, base64);
+          const chunkItem = { buffer, base64 };
+
+          if (rms >= ENERGY_THRESHOLD) {
+            if (!inVoice) {
+              inVoice = true;
+              // Vide le pre-roll pour capturer l'attaque du mot
+              while (prerollBuffers.length > 0) {
+                const pre = prerollBuffers.shift();
+                if (pre) this.onAudioChunk(pre.buffer, pre.base64);
+              }
+            }
+            hangoverRemaining = HANGOVER_MAX;
+            this.onAudioChunk(buffer, base64);
+          } else if (inVoice) {
+            if (hangoverRemaining > 0) {
+              hangoverRemaining--;
+              this.onAudioChunk(buffer, base64);
+            } else {
+              inVoice = false;
+              if (prerollBuffers.length >= PREROLL_MAX) prerollBuffers.shift();
+              prerollBuffers.push(chunkItem);
+            }
+          } else {
+            // Silence : economie reseau et CPU
+            if (prerollBuffers.length >= PREROLL_MAX) prerollBuffers.shift();
+            prerollBuffers.push(chunkItem);
+          }
         }
       };
 

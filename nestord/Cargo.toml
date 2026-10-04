@@ -22,7 +22,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 whisper-rs = { version = "0.16.0", features = ["cuda"], optional = true }
 
 [features]
-default = []
+default = ["full-audio"]
 # Pipeline VAD/STT/TTS complet (ort+CUDA, whisper-rs+CUDA). La capture micro et
 # la lecture audio sont geres par le front (Antigravity) : l'audio transite en
 # frames binaires WebSocket (PCM16LE), voir docs/audio-protocol.md.

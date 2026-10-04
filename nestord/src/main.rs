@@ -92,6 +92,8 @@ async fn main() -> anyhow::Result<()> {
         usage.clone(),
     ));
 
+    let wake_active_until_ms = Arc::new(AtomicU64::new(0));
+
     let state = Arc::new(AppState {
         events_tx: events_tx.clone(),
         config: config.clone(),
@@ -100,6 +102,7 @@ async fn main() -> anyhow::Result<()> {
         barge_in_gen: barge_in_gen.clone(),
         mic_tx,
         speaking_until_ms: speaking_until_ms.clone(),
+        wake_active_until_ms: wake_active_until_ms.clone(),
         missions,
         usage: usage.clone(),
         brain: brain.clone(),
@@ -122,7 +125,7 @@ async fn main() -> anyhow::Result<()> {
     let claude = claude_process::spawn(
         events_tx.clone(),
         #[cfg(feature = "full-audio")]
-        Some(tts_tx),
+        Some(tts_tx.clone()),
         #[cfg(not(feature = "full-audio"))]
         tts_tx,
         usage.clone(),
@@ -133,7 +136,17 @@ async fn main() -> anyhow::Result<()> {
     let _ = claude_cell.set(claude.clone());
 
     #[cfg(feature = "full-audio")]
-    audio::spawn(events_tx.clone(), brain.clone(), mic_rx, tts_rx, barge_in_gen, speaking_until_ms)?;
+    audio::spawn(
+        events_tx.clone(),
+        brain.clone(),
+        mic_rx,
+        tts_rx,
+        tts_tx,
+        barge_in_gen,
+        speaking_until_ms,
+        wake_active_until_ms,
+        config.clone(),
+    )?;
     #[cfg(not(feature = "full-audio"))]
     drop(mic_rx);
 

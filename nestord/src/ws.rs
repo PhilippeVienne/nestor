@@ -17,6 +17,13 @@ use std::sync::{Arc, Mutex};
 use crate::config::Config;
 use crate::protocol::{ClientEvent, DaemonStatus, ServerEvent};
 
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub events_tx: tokio::sync::broadcast::Sender<ServerEvent>,
@@ -36,6 +43,8 @@ pub struct AppState {
     /// le pipeline d'ecoute ignore le micro pendant cette fenetre (usage micro
     /// + haut-parleurs, donc Nestor se reentend). Remis a zero sur barge-in.
     pub speaking_until_ms: Arc<AtomicU64>,
+    /// Horodatage (epoch ms) jusqu'auquel le dialogue est actif sans exiger le mot-cle.
+    pub wake_active_until_ms: Arc<AtomicU64>,
     /// Missions deleguees a des sous-agents (outil MCP `start_mission`).
     pub missions: Arc<crate::mission::MissionManager>,
     /// Consommation du quota de la session, pour l'instantane de connexion.
@@ -48,6 +57,16 @@ fn connection_snapshot(state: &AppState) -> Vec<ServerEvent> {
     let mut events = Vec::new();
 
     events.push(state.brain.snapshot());
+
+    let is_wake_active = now_ms() < state.wake_active_until_ms.load(Ordering::SeqCst);
+    events.push(ServerEvent::WakeState { active: is_wake_active });
+    events.push(ServerEvent::State {
+        status: if is_wake_active {
+            DaemonStatus::Listening
+        } else {
+            DaemonStatus::Idle
+        },
+    });
 
     if let Some((five_hour, seven_day, resets_at)) = state.usage.snapshot() {
         events.push(ServerEvent::Usage { five_hour, seven_day, resets_at });
@@ -139,6 +158,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let barge_in_gen = state.barge_in_gen.clone();
     let mic_tx = state.mic_tx.clone();
     let speaking_until_ms = state.speaking_until_ms.clone();
+    let wake_active_until_ms = state.wake_active_until_ms.clone();
     let missions = state.missions.clone();
     let brain = state.brain.clone();
     let current_place = state.current_place.clone();
@@ -164,9 +184,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         // Le front a stoppe sa lecture : le micro redevient
                         // exploitable immediatement.
                         speaking_until_ms.store(0, Ordering::SeqCst);
+                        let timeout_ms = config.wake_word.timeout_secs.max(3) * 1000;
+                        wake_active_until_ms.store(now_ms() + timeout_ms, Ordering::SeqCst);
+                        let _ = events_tx.send(ServerEvent::WakeState { active: true });
                         let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Listening });
                     }
                     Ok(ClientEvent::SendText { content }) => {
+                        let timeout_ms = config.wake_word.timeout_secs.max(3) * 1000;
+                        wake_active_until_ms.store(now_ms() + timeout_ms, Ordering::SeqCst);
+                        let _ = events_tx.send(ServerEvent::WakeState { active: true });
                         let _ = events_tx.send(ServerEvent::Transcript {
                             role: crate::protocol::Role::User,
                             delta: None,

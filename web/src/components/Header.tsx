@@ -1,5 +1,5 @@
 import React from 'react';
-import { Radio, Wifi, WifiOff, Cpu, RefreshCw, Volume2, Mic, Terminal, Zap, Sparkles } from 'lucide-react';
+import { Wifi, WifiOff, Cpu, RefreshCw, Volume2, Mic, Terminal, Zap, Sparkles } from 'lucide-react';
 import type { DaemonStatus, ConnectionState, BackendStatusInfo } from '../types';
 
 interface HeaderProps {
@@ -18,9 +18,9 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   status,
   connectionState,
-  onSetStatus,
-  isSimulated,
-  onToggleSimulated,
+  onSetStatus: _onSetStatus,
+  isSimulated: _isSimulated,
+  onToggleSimulated: _onToggleSimulated,
   isConsoleOpen,
   onToggleConsole,
   runningToolsCount = 0,
@@ -53,9 +53,10 @@ export const Header: React.FC<HeaderProps> = ({
       case 'idle':
       default:
         return (
-          <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1 rounded-full bg-slate-900/80 text-slate-400 border border-slate-700/60 text-[11px] sm:text-xs font-mono">
+          <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1 rounded-full bg-slate-900/80 text-slate-400 border border-slate-700/60 text-[11px] sm:text-xs font-mono" title="Dites 'Hey Nestor' pour lui parler">
             <span className="w-2 h-2 rounded-full bg-cyan-400/40" />
-            <span className="font-semibold tracking-wider hidden sm:inline">EN ATTENTE</span>
+            <span className="font-semibold tracking-wider hidden sm:inline">VEILLE ("Hey Nestor")</span>
+            <span className="font-semibold tracking-wider sm:hidden">VEILLE</span>
           </div>
         );
     }
@@ -134,8 +135,8 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="w-full flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3 border-b border-slate-800/60 bg-slate-950/80 backdrop-blur-xl shrink-0 z-20">
       {/* Brand & Assistant Name */}
       <div className="flex items-center gap-2.5 sm:gap-3">
-        <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-600 via-sky-500 to-indigo-600 flex items-center justify-center text-white shadow-[0_0_12px_rgba(6,182,212,0.3)] shrink-0">
-          <Radio className="w-4 h-4" />
+        <div className="w-8 h-8 rounded-xl overflow-hidden border border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.3)] shrink-0 bg-[#030c28]">
+          <img src="/nestor-logo.png" alt="Nestor Logo" className="w-full h-full object-cover" />
         </div>
         <div>
           <div className="flex items-center gap-1.5 sm:gap-2">

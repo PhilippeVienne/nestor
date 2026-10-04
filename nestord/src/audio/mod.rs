@@ -12,6 +12,7 @@
 mod stt;
 mod tts;
 mod vad;
+pub mod wake;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -22,6 +23,7 @@ use base64::Engine;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::brain::NestorBrain;
+use crate::config::Config;
 use crate::protocol::{DaemonStatus, Role, ServerEvent};
 
 /// Frequence d'echantillonnage attendue pour les frames binaires micro
@@ -75,8 +77,11 @@ pub fn spawn(
     brain: Arc<NestorBrain>,
     mic_rx: mpsc::Receiver<Vec<u8>>,
     tts_rx: mpsc::UnboundedReceiver<String>,
+    tts_tx: mpsc::UnboundedSender<String>,
     barge_in_gen: Arc<AtomicU64>,
     speaking_until_ms: Arc<AtomicU64>,
+    wake_active_until_ms: Arc<AtomicU64>,
+    config: Arc<Config>,
 ) -> Result<()> {
     let models = models_dir();
 
@@ -85,13 +90,49 @@ pub fn spawn(
     anyhow::ensure!(vad_model.exists(), "modele VAD introuvable: {}", vad_model.display());
     anyhow::ensure!(whisper_model.exists(), "modele Whisper introuvable: {}", whisper_model.display());
 
+    // Ticker asynchrone de gestion de l'expiration du mot-cle (veille automatique)
+    {
+        let events_tx = events_tx.clone();
+        let wake_active_until_ms = wake_active_until_ms.clone();
+        let wake_enabled = config.wake_word.enabled;
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
+            let mut was_active = false;
+            loop {
+                interval.tick().await;
+                if !wake_enabled {
+                    continue;
+                }
+                let is_active = now_ms() < wake_active_until_ms.load(Ordering::SeqCst);
+                if was_active && !is_active {
+                    was_active = false;
+                    tracing::info!("Fenetre conversationnelle expiree : Nestor se remet en veille (mot-cle 'Hey Nestor' requis)");
+                    let _ = events_tx.send(ServerEvent::WakeState { active: false });
+                    let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Idle });
+                } else if !was_active && is_active {
+                    was_active = true;
+                }
+            }
+        });
+    }
+
     {
         let events_tx = events_tx.clone();
         let speaking_until_ms = speaking_until_ms.clone();
+        let wake_active_until_ms = wake_active_until_ms.clone();
+        let config = config.clone();
         std::thread::spawn(move || {
-            if let Err(err) =
-                listen_loop(events_tx, brain, mic_rx, &vad_model, &whisper_model, speaking_until_ms)
-            {
+            if let Err(err) = listen_loop(
+                events_tx,
+                brain,
+                mic_rx,
+                tts_tx,
+                &vad_model,
+                &whisper_model,
+                speaking_until_ms,
+                wake_active_until_ms,
+                config,
+            ) {
                 tracing::error!(?err, "pipeline d'ecoute (VAD/STT) interrompu");
             }
         });
@@ -99,8 +140,18 @@ pub fn spawn(
 
     {
         let piper_dir = models.join("piper");
+        let wake_active_until_ms = wake_active_until_ms.clone();
+        let config = config.clone();
         std::thread::spawn(move || {
-            if let Err(err) = speak_loop(events_tx, tts_rx, &piper_dir, barge_in_gen, speaking_until_ms) {
+            if let Err(err) = speak_loop(
+                events_tx,
+                tts_rx,
+                &piper_dir,
+                barge_in_gen,
+                speaking_until_ms,
+                wake_active_until_ms,
+                config,
+            ) {
                 tracing::error!(?err, "pipeline de synthese vocale (TTS) interrompu");
             }
         });
@@ -109,14 +160,17 @@ pub fn spawn(
     Ok(())
 }
 
-/// Boucle reception PCM16 (front) -> VAD -> accumulation -> STT -> envoi a Claude/AGY.
+/// Boucle reception PCM16 (front) -> VAD -> accumulation -> STT -> mot-cle Hey Nestor -> envoi a Claude/AGY.
 fn listen_loop(
     events_tx: broadcast::Sender<ServerEvent>,
     brain: Arc<NestorBrain>,
     mut mic_rx: mpsc::Receiver<Vec<u8>>,
+    tts_tx: mpsc::UnboundedSender<String>,
     vad_model: &std::path::Path,
     whisper_model: &std::path::Path,
     speaking_until_ms: Arc<AtomicU64>,
+    wake_active_until_ms: Arc<AtomicU64>,
+    config: Arc<Config>,
 ) -> Result<()> {
     let mut vad = vad::SileroVad::load(vad_model).context("chargement Silero VAD")?;
     let whisper = stt::WhisperStt::load(whisper_model).context("chargement Whisper")?;
@@ -124,7 +178,21 @@ fn listen_loop(
     // sur des enonces courts et produit alors de l'anglais invente.
     let stt_lang = std::env::var("NESTORD_STT_LANG").unwrap_or_else(|_| "fr".to_string());
 
-    let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Listening });
+    let detector = wake::WakeDetector::new(
+        config.wake_word.enabled,
+        config.wake_word.timeout_secs,
+        wake_active_until_ms.clone(),
+        config.address_form.clone(),
+        config.wake_word.ack_phrase.clone(),
+    );
+
+    let initial_status = if config.wake_word.enabled {
+        DaemonStatus::Idle
+    } else {
+        DaemonStatus::Listening
+    };
+    let _ = events_tx.send(ServerEvent::State { status: initial_status });
+    let _ = events_tx.send(ServerEvent::WakeState { active: false });
 
     let mut pending: Vec<f32> = Vec::new();
     let mut speech_buf: Vec<f32> = Vec::new();
@@ -243,21 +311,71 @@ fn listen_loop(
                     tracing::debug!(?transcription, "resultat de la transcription whisper");
                     match transcription {
                         Ok(text) if !text.trim().is_empty() => {
-                            let text = text.trim().to_string();
-                            let _ = events_tx.send(ServerEvent::Transcript {
-                                role: Role::User,
-                                delta: None,
-                                text: text.clone(),
-                                is_final: Some(true),
-                            });
-                            brain.send_user_message_from_audio(&text);
+                            let text = text.trim();
+                            let now = now_ms();
+                            let action = detector.evaluate(text, now);
+                            tracing::info!(%text, ?action, "evaluation mot-cle (wake word)");
+
+                            match action {
+                                wake::WakeAction::WakeOnly { ack_phrase } => {
+                                    tracing::info!(%ack_phrase, "mot-cle seul detecte, acquittement");
+                                    let _ = events_tx.send(ServerEvent::Transcript {
+                                        role: Role::Assistant,
+                                        delta: None,
+                                        text: ack_phrase.clone(),
+                                        is_final: Some(true),
+                                    });
+                                    let _ = events_tx.send(ServerEvent::WakeState { active: true });
+                                    let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Listening });
+                                    let _ = tts_tx.send(ack_phrase);
+                                }
+                                wake::WakeAction::Command { query } => {
+                                    tracing::info!(%query, "mot-cle avec commande detecte");
+                                    let _ = events_tx.send(ServerEvent::Transcript {
+                                        role: Role::User,
+                                        delta: None,
+                                        text: text.to_string(),
+                                        is_final: Some(true),
+                                    });
+                                    let _ = events_tx.send(ServerEvent::WakeState { active: true });
+                                    let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Thinking });
+                                    brain.send_user_message_from_audio(&query);
+                                }
+                                wake::WakeAction::FollowUp { text: follow_up } => {
+                                    tracing::info!(%follow_up, "suite de dialogue en session active (follow-up)");
+                                    let _ = events_tx.send(ServerEvent::Transcript {
+                                        role: Role::User,
+                                        delta: None,
+                                        text: follow_up.clone(),
+                                        is_final: Some(true),
+                                    });
+                                    let _ = events_tx.send(ServerEvent::WakeState { active: true });
+                                    let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Thinking });
+                                    brain.send_user_message_from_audio(&follow_up);
+                                }
+                                wake::WakeAction::Ignored => {
+                                    tracing::info!(%text, "enonce ignore : Nestor est en veille (mot-cle 'Hey Nestor' requis)");
+                                    let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Idle });
+                                    let _ = events_tx.send(ServerEvent::WakeState { active: false });
+                                }
+                            }
                         }
                         Ok(_) => {
-                            let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Listening });
+                            let status = if detector.is_active(now_ms()) {
+                                DaemonStatus::Listening
+                            } else {
+                                DaemonStatus::Idle
+                            };
+                            let _ = events_tx.send(ServerEvent::State { status });
                         }
                         Err(err) => {
                             tracing::error!(?err, "echec de transcription whisper");
-                            let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Listening });
+                            let status = if detector.is_active(now_ms()) {
+                                DaemonStatus::Listening
+                            } else {
+                                DaemonStatus::Idle
+                            };
+                            let _ = events_tx.send(ServerEvent::State { status });
                         }
                     }
                 }
@@ -270,13 +388,16 @@ fn listen_loop(
 
 /// Boucle reception des segments de texte -> synthese Piper -> envoi d'un
 /// `AudioChunk` JSON (PCM16 base64) au front, avec prise en charge du
-/// barge-in (abandon des segments d'un tour interrompu).
+/// barge-in (abandon des segments d'un tour interrompu) et prolongation de
+/// la fenetre conversationnelle.
 fn speak_loop(
     events_tx: broadcast::Sender<ServerEvent>,
     mut tts_rx: mpsc::UnboundedReceiver<String>,
     piper_dir: &std::path::Path,
     barge_in_gen: Arc<AtomicU64>,
     speaking_until_ms: Arc<AtomicU64>,
+    wake_active_until_ms: Arc<AtomicU64>,
+    config: Arc<Config>,
 ) -> Result<()> {
     let voice = std::env::var("NESTORD_TTS_VOICE").unwrap_or_else(|_| "fr_FR-upmc-medium".to_string());
     let speaker_id = std::env::var("NESTORD_TTS_SPEAKER")
@@ -284,6 +405,7 @@ fn speak_loop(
         .and_then(|v| v.parse::<i64>().ok())
         .unwrap_or(1); // locuteur 1 du modele upmc = Pierre (masculin)
 
+    let timeout_ms = config.wake_word.timeout_secs.max(3) * 1000;
     let synth = tts::PiperTts::load(piper_dir, &voice, speaker_id).context("chargement Piper TTS")?;
     let sample_rate = synth.sample_rate();
 
@@ -300,6 +422,7 @@ fn speak_loop(
 
         if barge_in_gen.load(Ordering::SeqCst) != start_gen {
             speaking_until_ms.store(0, Ordering::SeqCst);
+            wake_active_until_ms.store(now_ms() + timeout_ms, Ordering::SeqCst);
             continue; // le tour a ete interrompu pendant la synthese elle-meme
         }
 
@@ -307,7 +430,9 @@ fn speak_loop(
         // durees pour couvrir toute la file de lecture, pas seulement ce segment.
         let duration_ms = (waveform.len() as u64 * 1000) / sample_rate.max(1) as u64;
         let playback_start = speaking_until_ms.load(Ordering::SeqCst).max(now_ms());
-        speaking_until_ms.store(playback_start + duration_ms + ECHO_TAIL_MS, Ordering::SeqCst);
+        let playback_end = playback_start + duration_ms + ECHO_TAIL_MS;
+        speaking_until_ms.store(playback_end, Ordering::SeqCst);
+        wake_active_until_ms.store(playback_end + timeout_ms, Ordering::SeqCst);
 
         let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Speaking });
         let pcm_base64 = base64::engine::general_purpose::STANDARD.encode(f32_to_pcm16_bytes(&waveform));
@@ -321,6 +446,7 @@ fn speak_loop(
         // (evite un flicker d'etat entre deux phrases d'une meme reponse).
         if tts_rx.is_empty() {
             let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Listening });
+            let _ = events_tx.send(ServerEvent::WakeState { active: true });
         }
     }
 

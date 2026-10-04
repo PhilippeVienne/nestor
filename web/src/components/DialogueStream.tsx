@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { User, Sparkles, Copy, Check, Terminal, ArrowDown } from 'lucide-react';
+import { User, Sparkles, Copy, Check, ArrowDown } from 'lucide-react';
 import type { MessageItem, DaemonStatus } from '../types';
 
 interface DialogueStreamProps {

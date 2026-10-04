@@ -20,6 +20,10 @@ export type ServerEvent =
       status: DaemonStatus;
     }
   | {
+      type: 'wake_state';
+      active: boolean;
+    }
+  | {
       type: 'audio_levels';
       rms: number;
       peak: number;

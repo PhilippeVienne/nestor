@@ -54,6 +54,7 @@ export function useNestorWebSocket({
 
   // Web Audio state
   const [isMicActive, setIsMicActive] = useState(false);
+  const [isWakeActive, setIsWakeActive] = useState(false);
   const [isSpeakerActive, setIsSpeakerActive] = useState(true);
   const [isBrowserTtsEnabled, setIsBrowserTtsEnabled] = useState(false);
 
@@ -189,6 +190,10 @@ export function useNestorWebSocket({
           switch (data.type) {
             case 'state':
               setStatus(data.status);
+              break;
+
+            case 'wake_state':
+              setIsWakeActive(data.active);
               break;
 
             case 'audio_levels':
@@ -597,6 +602,7 @@ export function useNestorWebSocket({
     isSimulated,
     setIsSimulated,
     isMicActive,
+    isWakeActive,
     toggleMic,
     isSpeakerActive,
     toggleSpeaker: () => setIsSpeakerActive(!isSpeakerActive),
