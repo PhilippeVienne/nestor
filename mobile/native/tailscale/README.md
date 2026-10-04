@@ -19,9 +19,23 @@ Go de `go.mod` (Go 1.27 echoue sur `go-json-experiment`).
 - Un wrapper Flutter signale que sur Android `net.Interfaces()` de Go peut
   bloquer le tunnel (`CAP_NET_ADMIN`) : a verifier en premier.
 
+## APK de test autonome (`tsprobe`)
+
+```bash
+./build-probe.sh                      # -> out/tsprobe.apk (arm64-v8a, ~14 Mo)
+TS_AUTHKEY=tskey-auth-... ./build-probe.sh   # cle prerenseignee : ne pas diffuser l'APK
+adb install -r out/tsprobe.apk
+```
+
+Construit sans Gradle (aapt2, javac, d8, apksigner), signe avec le keystore de
+debug du projet. L'app (`com.nestor.tsprobe`) demande une cle d'authentification
+Tailscale (ephemere de preference), appelle `tailscale_up`, ouvre une connexion
+TCP vers la cible (defaut `kanto.felis-ionian.ts.net:443`), puis affiche le
+verdict et la fin des journaux de libtailscale. Le noeud s'appelle
+`nestor-probe` et est ephemere.
+
 ## Suite envisagee
 
-1. Programme de test C (NDK) lance via `adb` : `tailscale_set_authkey` (cle
-   ephemere), `tailscale_up`, `tailscale_dial("tcp", "kanto:8340")`.
+1. Lancer `tsprobe` sur un telephone et lire le verdict.
 2. Si le tunnel fonctionne : pont JNI + proxy TCP loopback pour OkHttp, puis
    inclusion des `.so` dans `jniLibs`.
