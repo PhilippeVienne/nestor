@@ -143,13 +143,25 @@ impl Default for WakeConfig {
     }
 }
 
+/// Mots-cles par defaut, utilises quand la configuration n'en fournit aucun.
+pub fn default_words() -> Vec<String> {
+    [
+        "nestor", "hey nestor", "he nestor", "eh nestor", "dis nestor", "dis moi nestor",
+        "ok nestor", "okay nestor", "salut nestor", "bonjour nestor", "coucou nestor",
+        "allo nestor",
+    ]
+    .iter()
+    .map(|w| w.to_string())
+    .collect()
+}
+
 /// Configuration du mot-cle d'activation ("Hey Nestor").
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct WakeWordConfig {
     /// Activer ou desactiver la detection de mot-cle.
     pub enabled: bool,
-    /// Mots-cles reconnus pour reveiller Nestor.
+    /// Formules d'activation reconnues (le dernier mot est le nom, le reste le prefixe).
     pub words: Vec<String>,
     /// Duree de la fenetre conversationnelle active (secondes) apres chaque reponse.
     pub timeout_secs: u64,
@@ -161,13 +173,7 @@ impl Default for WakeWordConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            words: vec![
-                "hey nestor".to_string(),
-                "hé nestor".to_string(),
-                "eh nestor".to_string(),
-                "dis nestor".to_string(),
-                "nestor".to_string(),
-            ],
+            words: default_words(),
             timeout_secs: 15,
             ack_phrase: None,
         }
@@ -237,7 +243,7 @@ nestord n'ecoute que sur 127.0.0.1, a definir avant toute exposition reseau plus
         if let Ok(val) = std::env::var("NESTORD_WAKE_WORDS") {
             let parsed: Vec<String> = val
                 .split(',')
-                .map(|w| w.trim().to_ascii_lowercase())
+                .map(|w| w.trim().to_string())
                 .filter(|w| !w.is_empty())
                 .collect();
             if !parsed.is_empty() {

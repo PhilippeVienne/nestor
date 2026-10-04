@@ -93,13 +93,24 @@ pub fn spawn(
     // Ticker asynchrone de gestion de l'expiration du mot-cle (veille automatique)
     {
         let events_tx = events_tx.clone();
+        let mut events_rx = events_tx.subscribe();
         let wake_active_until_ms = wake_active_until_ms.clone();
         let wake_enabled = config.wake_word.enabled;
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
             let mut was_active = false;
+            // Dernier etat du daemon, pour ne retomber en veille que s'il n'est
+            // ni en train de reflechir ni de parler (reponse plus longue que la fenetre).
+            let mut last_status = DaemonStatus::Idle;
             loop {
                 interval.tick().await;
+                loop {
+                    match events_rx.try_recv() {
+                        Ok(ServerEvent::State { status }) => last_status = status,
+                        Ok(_) | Err(broadcast::error::TryRecvError::Lagged(_)) => {}
+                        Err(_) => break,
+                    }
+                }
                 if !wake_enabled {
                     continue;
                 }
@@ -108,7 +119,9 @@ pub fn spawn(
                     was_active = false;
                     tracing::info!("Fenetre conversationnelle expiree : Nestor se remet en veille (mot-cle 'Hey Nestor' requis)");
                     let _ = events_tx.send(ServerEvent::WakeState { active: false });
-                    let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Idle });
+                    if last_status == DaemonStatus::Listening {
+                        let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Idle });
+                    }
                 } else if !was_active && is_active {
                     was_active = true;
                 }
@@ -184,6 +197,7 @@ fn listen_loop(
         wake_active_until_ms.clone(),
         config.address_form.clone(),
         config.wake_word.ack_phrase.clone(),
+        config.wake_word.words.clone(),
     );
 
     let initial_status = if config.wake_word.enabled {

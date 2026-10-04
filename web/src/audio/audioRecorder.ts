@@ -65,8 +65,8 @@ export class AudioRecorder {
       // de faire tourner continuellement le reseau et le CPU en arriere-plan.
       const ENERGY_THRESHOLD = 0.012;
       const PREROLL_MAX = 3; // ~255 ms de pre-roll a 16 kHz
-      const HANGOVER_MAX = 6; // ~510 ms de maintien apres la parole
-      const prerollBuffers: { buffer: ArrayBuffer; base64: string }[] = [];
+      const HANGOVER_MAX = 10; // ~850 ms : doit depasser SILENCE_HANGOVER_MS (700 ms) cote nestord, sinon l'enonce n'est jamais cloture
+      const prerollBuffers: ArrayBuffer[] = [];
       let inVoice = false;
       let hangoverRemaining = 0;
 
@@ -90,8 +90,8 @@ export class AudioRecorder {
 
         if (this.onAudioChunk) {
           const buffer = pcm16.buffer;
-          const base64 = this.arrayBufferToBase64(buffer);
-          const chunkItem = { buffer, base64 };
+          // Le base64 n'est calcule que pour les trames reellement envoyees.
+          const send = (buf: ArrayBuffer) => this.onAudioChunk?.(buf, this.arrayBufferToBase64(buf));
 
           if (rms >= ENERGY_THRESHOLD) {
             if (!inVoice) {
@@ -99,24 +99,24 @@ export class AudioRecorder {
               // Vide le pre-roll pour capturer l'attaque du mot
               while (prerollBuffers.length > 0) {
                 const pre = prerollBuffers.shift();
-                if (pre) this.onAudioChunk(pre.buffer, pre.base64);
+                if (pre) send(pre);
               }
             }
             hangoverRemaining = HANGOVER_MAX;
-            this.onAudioChunk(buffer, base64);
+            send(buffer);
           } else if (inVoice) {
             if (hangoverRemaining > 0) {
               hangoverRemaining--;
-              this.onAudioChunk(buffer, base64);
+              send(buffer);
             } else {
               inVoice = false;
               if (prerollBuffers.length >= PREROLL_MAX) prerollBuffers.shift();
-              prerollBuffers.push(chunkItem);
+              prerollBuffers.push(buffer);
             }
           } else {
             // Silence : economie reseau et CPU
             if (prerollBuffers.length >= PREROLL_MAX) prerollBuffers.shift();
-            prerollBuffers.push(chunkItem);
+            prerollBuffers.push(buffer);
           }
         }
       };

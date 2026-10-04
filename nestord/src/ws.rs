@@ -61,7 +61,7 @@ fn connection_snapshot(state: &AppState) -> Vec<ServerEvent> {
     let is_wake_active = now_ms() < state.wake_active_until_ms.load(Ordering::SeqCst);
     events.push(ServerEvent::WakeState { active: is_wake_active });
     events.push(ServerEvent::State {
-        status: if is_wake_active {
+        status: if is_wake_active || !state.config.wake_word.enabled {
             DaemonStatus::Listening
         } else {
             DaemonStatus::Idle
