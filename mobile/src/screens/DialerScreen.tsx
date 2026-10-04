@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SoundWaveOrb } from '../components/SoundWaveOrb';
+import { loadConnection, saveConnection, splitTokenFromUrl } from '../storage/connection';
 
 interface DialerScreenProps {
   onStartCall: (serverUrl: string, token?: string) => void;
@@ -26,6 +27,22 @@ export const DialerScreen: React.FC<DialerScreenProps> = ({
 }) => {
   const [serverUrl, setServerUrl] = useState('ws://10.0.2.2:8340/ws');
   const [token, setToken] = useState('');
+
+  // Restaure la derniere connexion memorisee (URL + jeton d'onboarding).
+  useEffect(() => {
+    loadConnection().then((saved) => {
+      if (saved.serverUrl) setServerUrl(saved.serverUrl);
+      if (saved.token) setToken(saved.token);
+    });
+  }, []);
+
+  const handleStart = () => {
+    const connection = splitTokenFromUrl(serverUrl, token);
+    setServerUrl(connection.url);
+    setToken(connection.token);
+    saveConnection(connection.url, connection.token);
+    onStartCall(connection.url, connection.token);
+  };
 
   const presets = [
     { label: 'Émulateur (10.0.2.2)', url: 'ws://10.0.2.2:8340/ws' },
@@ -174,7 +191,7 @@ export const DialerScreen: React.FC<DialerScreenProps> = ({
         {/* Big Action Call Button */}
         <TouchableOpacity
           style={[styles.callButton, isConnecting && styles.callButtonDisabled]}
-          onPress={() => onStartCall(serverUrl, token)}
+          onPress={handleStart}
           disabled={isConnecting}
           activeOpacity={0.8}
         >
