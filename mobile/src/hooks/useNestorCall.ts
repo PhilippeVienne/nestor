@@ -145,7 +145,7 @@ export function useNestorCall() {
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   }, []);
 
-  const startCall = useCallback(async (serverUrl?: string) => {
+  const startCall = useCallback(async (serverUrl?: string, token?: string) => {
     const micGranted = await NestorCall.requestPermissions();
     if (!micGranted) {
       setCallState('ERROR');
@@ -157,7 +157,7 @@ export function useNestorCall() {
     setCallStatusDetails('Connexion à Nestor...');
     setMessages([]);
     setActiveTools([]);
-    await NestorCall.startCall(serverUrl);
+    await NestorCall.startCall(serverUrl, token);
   }, []);
 
   const endCall = useCallback(async () => {

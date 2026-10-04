@@ -8,7 +8,7 @@ import { DialerScreen } from './src/screens/DialerScreen';
 export default function App() {
   const call = useNestorCall();
 
-  const handleStartCall = async (serverUrl: string) => {
+  const handleStartCall = async (serverUrl: string, token?: string) => {
     if (Platform.OS === 'android') {
       try {
         const permissionsToRequest = [
@@ -35,7 +35,7 @@ export default function App() {
       }
     }
 
-    call.startCall(serverUrl);
+    call.startCall(serverUrl, token);
   };
 
   const isCallActive = call.callState === 'ACTIVE' || call.callState === 'CONNECTING';

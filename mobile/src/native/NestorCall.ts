@@ -3,15 +3,17 @@ import { NativeModules, NativeEventEmitter, Platform } from 'react-native';
 const { NestorCallModule } = NativeModules;
 
 /**
- * Ajoute le jeton d'authentification (`EXPO_PUBLIC_NESTOR_TOKEN`) en query
- * param. Absent par defaut : nestord n'exige un jeton que si `auth_token`
- * est configure cote serveur (cf. `nestord/src/config.rs`).
+ * Ajoute le jeton d'authentification en query param, sauf si l'URL en porte
+ * deja un (URL complete fournie par `nestord onboard`). Priorite : jeton saisi
+ * dans l'app, puis `EXPO_PUBLIC_NESTOR_TOKEN`. Sans jeton, nestord n'en exige
+ * que si `auth_token` est configure cote serveur (cf. `nestord/src/config.rs`).
  */
-function withAuthToken(url: string): string {
-  const token = process.env.EXPO_PUBLIC_NESTOR_TOKEN;
-  if (!token) return url;
+function withAuthToken(url: string, token?: string): string {
+  if (/[?&]token=/.test(url)) return url;
+  const effective = token?.trim() || process.env.EXPO_PUBLIC_NESTOR_TOKEN;
+  if (!effective) return url;
   const separator = url.includes('?') ? '&' : '?';
-  return `${url}${separator}token=${encodeURIComponent(token)}`;
+  return `${url}${separator}token=${encodeURIComponent(effective)}`;
 }
 
 export type CallState = 'IDLE' | 'CONNECTING' | 'ACTIVE' | 'ENDED' | 'ERROR';
@@ -77,12 +79,12 @@ export const NestorCall = {
     return NestorCallModule.requestPermissions();
   },
 
-  async startCall(serverUrl: string = 'ws://10.0.2.2:8340/ws'): Promise<boolean> {
+  async startCall(serverUrl: string = 'ws://10.0.2.2:8340/ws', token?: string): Promise<boolean> {
     if (!NestorCallModule) {
       console.warn('[NestorCall] Native module not available');
       return false;
     }
-    return NestorCallModule.startCall({ serverUrl: withAuthToken(serverUrl) });
+    return NestorCallModule.startCall({ serverUrl: withAuthToken(serverUrl, token) });
   },
 
   async endCall(): Promise<boolean> {

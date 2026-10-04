@@ -14,7 +14,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SoundWaveOrb } from '../components/SoundWaveOrb';
 
 interface DialerScreenProps {
-  onStartCall: (serverUrl: string) => void;
+  onStartCall: (serverUrl: string, token?: string) => void;
   isConnecting: boolean;
   statusMessage?: string;
 }
@@ -25,11 +25,13 @@ export const DialerScreen: React.FC<DialerScreenProps> = ({
   statusMessage,
 }) => {
   const [serverUrl, setServerUrl] = useState('ws://10.0.2.2:8340/ws');
+  const [token, setToken] = useState('');
 
   const presets = [
     { label: 'Émulateur (10.0.2.2)', url: 'ws://10.0.2.2:8340/ws' },
     { label: 'Localhost', url: 'ws://127.0.0.1:8340/ws' },
     { label: 'Wi-Fi LAN', url: 'ws://192.168.1.50:8340/ws' },
+    { label: 'Tailscale', url: 'wss://kanto.felis-ionian.ts.net:8443/ws' },
   ];
 
   return (
@@ -64,6 +66,23 @@ export const DialerScreen: React.FC<DialerScreenProps> = ({
               placeholderTextColor="#475569"
               autoCapitalize="none"
               autoCorrect={false}
+            />
+          </View>
+
+          <Text style={[styles.cardLabel, { marginTop: 14 }]}>
+            Jeton d'onboarding (commande `nestord onboard`) :
+          </Text>
+          <View style={styles.inputWrapper}>
+            <Ionicons name="key-outline" size={18} color="#64748b" style={styles.inputIcon} />
+            <TextInput
+              style={styles.textInput}
+              value={token}
+              onChangeText={setToken}
+              placeholder="Optionnel si l'URL contient ?token=..."
+              placeholderTextColor="#475569"
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry
             />
           </View>
 
@@ -155,7 +174,7 @@ export const DialerScreen: React.FC<DialerScreenProps> = ({
         {/* Big Action Call Button */}
         <TouchableOpacity
           style={[styles.callButton, isConnecting && styles.callButtonDisabled]}
-          onPress={() => onStartCall(serverUrl)}
+          onPress={() => onStartCall(serverUrl, token)}
           disabled={isConnecting}
           activeOpacity={0.8}
         >
