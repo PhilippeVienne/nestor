@@ -1,0 +1,92 @@
+//! Commande `nestord onboard` : fournit le jeton d'authentification a saisir
+//! dans l'app mobile (ou le front web) pour se connecter a `/ws`.
+//!
+//! Le jeton est genere une fois, persiste dans `~/.config/nestord/auth_token`
+//! (droits 0600) puis relu par le daemon au demarrage (cf. `Config::load`).
+//! `NESTORD_AUTH_TOKEN` et `auth_token` du TOML restent prioritaires.
+
+use std::io::Read;
+use std::path::PathBuf;
+
+use anyhow::{Context, Result};
+
+use crate::config::{Config, token_file_path};
+
+/// Genere 24 octets aleatoires (48 caracteres hexadecimaux) depuis le noyau.
+fn generate_token() -> Result<String> {
+    let mut bytes = [0u8; 24];
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut bytes))
+        .context("lecture de /dev/urandom")?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Ecrit le jeton avec des droits restreints au proprietaire.
+fn persist_token(path: &PathBuf, token: &str) -> Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::io::Write;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
+        .with_context(|| format!("ecriture de {}", path.display()))?;
+    writeln!(file, "{token}")?;
+    Ok(())
+}
+
+/// Nom DNS MagicDNS de cette machine, si Tailscale est disponible.
+fn tailscale_host() -> Option<String> {
+    let out = std::process::Command::new("tailscale")
+        .args(["status", "--json"])
+        .output()
+        .ok()?;
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    let name = json.get("Self")?.get("DNSName")?.as_str()?;
+    Some(name.trim_end_matches('.').to_string())
+}
+
+/// Point d'entree : `nestord onboard [--rotate] [--url <wss://hote[:port]/ws>]`.
+pub fn run(args: &[String]) -> Result<()> {
+    let mut rotate = false;
+    let mut base_url: Option<String> = None;
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--rotate" => rotate = true,
+            "--url" => base_url = iter.next().cloned(),
+            other => anyhow::bail!("option inconnue : {other} (attendu : --rotate, --url <url>)"),
+        }
+    }
+
+    let path = token_file_path();
+    // `Config::load` couvre l'env, le TOML et le fichier genere precedemment.
+    let configured = Config::load().auth_token;
+    let (token, source) = match configured {
+        Some(token) if !rotate => (token, "jeton existant"),
+        _ => {
+            if std::env::var("NESTORD_AUTH_TOKEN").is_ok_and(|t| !t.trim().is_empty()) {
+                eprintln!("Attention : NESTORD_AUTH_TOKEN est defini et reste prioritaire sur le fichier.");
+            }
+            let token = generate_token()?;
+            persist_token(&path, &token)?;
+            (token, "genere et enregistre")
+        }
+    };
+
+    let url = base_url
+        .or_else(|| tailscale_host().map(|h| format!("wss://{h}:8443/ws")))
+        .unwrap_or_else(|| "wss://<hote>:8443/ws".to_string());
+    let separator = if url.contains('?') { '&' } else { '?' };
+
+    println!("Jeton d'onboarding ({source}) :\n\n  {token}\n");
+    println!("URL complete a coller dans l'app mobile :\n\n  {url}{separator}token={token}\n");
+    println!("Fichier : {}", path.display());
+    println!("Redemarrez nestord pour que le jeton soit exige sur /ws.");
+    println!("`nestord onboard --rotate` revoque ce jeton et en genere un nouveau.");
+    Ok(())
+}

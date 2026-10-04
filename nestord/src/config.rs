@@ -9,6 +9,12 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+/// Fichier du jeton genere par `nestord onboard`.
+pub fn token_file_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".config/nestord/auth_token")
+}
+
 /// Emplacement par defaut : `~/.config/nestord/config.toml`.
 fn default_config_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
@@ -226,9 +232,18 @@ impl Config {
         }
 
         if config.auth_token.is_none() {
+            if let Ok(file) = std::fs::read_to_string(token_file_path()) {
+                let token = file.trim().to_string();
+                if !token.is_empty() {
+                    config.auth_token = Some(token);
+                }
+            }
+        }
+
+        if config.auth_token.is_none() {
             tracing::warn!(
                 "aucun auth_token configure : /ws accepte toute connexion. Tolerable tant que \
-nestord n'ecoute que sur 127.0.0.1, a definir avant toute exposition reseau plus large."
+nestord n'ecoute que sur 127.0.0.1, a definir avant toute exposition reseau plus large (`nestord onboard`)."
             );
         }
 

@@ -10,6 +10,7 @@ mod config;
 mod judge;
 mod mcp;
 mod mission;
+mod onboard;
 mod protocol;
 mod todo;
 mod usage;
@@ -47,6 +48,11 @@ fn write_mcp_config() -> anyhow::Result<PathBuf> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("onboard") {
+        return onboard::run(&args[1..]);
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
