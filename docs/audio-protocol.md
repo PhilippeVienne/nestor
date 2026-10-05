@@ -141,3 +141,21 @@ et attenuee de moitie, avec du bruit.
 
 Limites : echo lineaire et sans reverberation, sans l'AEC du client ni distorsion
 des haut-parleurs. A confirmer avec un vrai materiel.
+
+### Reglages et limites du barge-in vocal (retour d'essai reel)
+
+Un essai reel a montre qu'exiger 300 ms de parole **sans aucune fenetre sous le
+seuil** echouait : la parole naturelle fait de petites chutes de probabilite
+entre les syllabes. Le critere compte maintenant les fenetres de parole
+(`threshold` 0,75, `min_speech_ms` 300) en tolerant jusqu'a 160 ms de chutes, et
+exige une energie minimale apres AEC (`min_rms` 0,012) pour ecarter les residus
+d'echo. L'AEC tourne sur toutes les trames (reference nulle hors lecture).
+
+Un journal de bilan est ecrit apres chaque lecture (niveau `debug`) : probabilite
+VAD maximale, pic du micro brut et pic apres AEC. Au declenchement, le RMS moyen
+de la parole detectee est journalise : a comparer a `min_rms` si l'interruption
+est trop timide ou trop sensible.
+
+Limites connues (simulation sans AEC client) : apres une interruption, l'AEC peut
+laisser passer des residus pendant sa reconvergence (quelques secondes), et une
+voix faible parlant par-dessus un echo fort peut etre partiellement supprimee.

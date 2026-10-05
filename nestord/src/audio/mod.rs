@@ -41,6 +41,8 @@ const VAD_THRESHOLD: f32 = 0.5;
 const SILENCE_HANGOVER_MS: u64 = 700;
 /// Pas entre deux consultations du modele de fin de tour pendant un silence.
 const TURN_CHECK_STEP_MS: u64 = 160;
+/// Fenetres VAD (32 ms) sous le seuil tolerees au sein d'une meme parole pendant la lecture.
+const BARGE_MAX_MISS_WINDOWS: u32 = 5;
 /// Duree minimale de parole avant de declencher une transcription (evite le bruit court).
 const MIN_SPEECH_MS: u64 = 250;
 /// Marge ajoutee a la fenetre de suppression d'echo. Le serveur ne connait pas
@@ -262,9 +264,13 @@ fn listen_loop(
     // Parole continue detectee pendant que Nestor parle (candidate a une interruption).
     let mut barge_buf: Vec<f32> = Vec::new();
     let mut barge_run_ms: u64 = 0;
+    let mut barge_miss: u32 = 0;
+    let (mut barge_rms_sum, mut barge_hits) = (0f32, 0u32);
     // Annulation d'echo (avec le signal envoye aux haut-parleurs) avant le VAD du barge-in.
     let mut aec = config.barge_in.aec.then(aec::EchoCanceller::new);
     let mut aec_in: Vec<f32> = Vec::new();
+    // Micro nettoye par l'AEC (consomme par la detection de barge-in pendant la lecture).
+    let mut clean_pending: Vec<f32> = Vec::new();
     // Bilan diagnostic d'une phase de lecture : la parole a-t-elle ete entendue, et a quel niveau ?
     let (mut diag_max_prob, mut diag_raw_peak, mut diag_clean_peak) = (0f32, 0f32, 0f32);
     let mut seen_barge_gen = barge_in_gen.load(Ordering::SeqCst);
@@ -272,30 +278,17 @@ fn listen_loop(
     while let Some(bytes) = mic_rx.blocking_recv() {
         frames_received += 1;
 
-        // Suppression d'echo : tant que la synthese est censee etre en cours de
-        // lecture, on n'ecoute pas pour transcrire. On surveille seulement une
-        // parole franche et soutenue (barge-in vocal), qui coupe la lecture.
-        if now_ms() < speaking_until_ms.load(Ordering::SeqCst) {
-            speech_buf.clear();
-            preroll.clear();
-            in_speech = false;
-            silence_run_ms = 0;
-            speech_run_ms = 0;
-            was_suppressing = true;
+        // Interruption (manuelle ou vocale) depuis la derniere trame : plus rien a lire.
+        let current_gen = barge_in_gen.load(Ordering::SeqCst);
+        if current_gen != seen_barge_gen {
+            seen_barge_gen = current_gen;
+            aec_reference.clear();
+        }
 
-            if !config.barge_in.voice {
-                pending.clear();
-                continue;
-            }
-
-            // Interruption (manuelle ou autre) depuis la derniere trame : plus rien a lire.
-            let current_gen = barge_in_gen.load(Ordering::SeqCst);
-            if current_gen != seen_barge_gen {
-                seen_barge_gen = current_gen;
-                aec_reference.clear();
-            }
-
-            // Micro -> AEC (trames de 10 ms, avec la reference du meme instant) -> VAD.
+        // L'AEC tourne sur TOUTES les trames (reference a zero hors lecture) : s'il n'etait
+        // alimente que pendant la lecture, ses flux rendu/capture auraient des trous et il
+        // devrait reconverger a chaque reponse, laissant passer des residus d'echo.
+        if config.barge_in.voice {
             aec_in.extend(pcm16_bytes_to_f32(&bytes));
             while aec_in.len() >= aec::FRAME_SAMPLES {
                 let block: Vec<f32> = aec_in.drain(..aec::FRAME_SAMPLES).collect();
@@ -310,24 +303,61 @@ fn listen_loop(
                     }
                 };
                 diag_clean_peak = diag_clean_peak.max(cleaned.iter().fold(0f32, |m, s| m.max(s.abs())));
-                pending.extend_from_slice(&cleaned);
+                clean_pending.extend_from_slice(&cleaned);
             }
-            while pending.len() >= VAD_CHUNK_SAMPLES {
-                let window: Vec<f32> = pending.drain(..VAD_CHUNK_SAMPLES).collect();
+        }
+
+        // Suppression d'echo : tant que la synthese est censee etre en cours de
+        // lecture, on n'ecoute pas pour transcrire. On surveille seulement une
+        // parole franche et soutenue (barge-in vocal), qui coupe la lecture.
+        if now_ms() < speaking_until_ms.load(Ordering::SeqCst) {
+            speech_buf.clear();
+            preroll.clear();
+            in_speech = false;
+            silence_run_ms = 0;
+            speech_run_ms = 0;
+            was_suppressing = true;
+
+            if !config.barge_in.voice {
+                pending.clear();
+                clean_pending.clear();
+                continue;
+            }
+
+            // Parole detectee dans le micro nettoye (VAD), pendant que Nestor parle.
+            while clean_pending.len() >= VAD_CHUNK_SAMPLES {
+                let window: Vec<f32> = clean_pending.drain(..VAD_CHUNK_SAMPLES).collect();
                 let window_ms = (VAD_CHUNK_SAMPLES as f64 / MIC_SAMPLE_RATE as f64 * 1000.0) as u64;
                 let prob = vad.process(&window).unwrap_or(0.0);
                 diag_max_prob = diag_max_prob.max(prob);
-                if prob >= config.barge_in.threshold {
+                let window_rms = (window.iter().map(|s| s * s).sum::<f32>() / window.len() as f32).sqrt();
+                // Un residu d'echo peut ressembler a de la parole pour le VAD mais reste bien
+                // plus faible qu'une voix proche du micro : plancher d'energie apres AEC.
+                if prob >= config.barge_in.threshold && window_rms >= config.barge_in.min_rms {
+                    barge_rms_sum += window_rms;
+                    barge_hits += 1;
                     barge_buf.extend_from_slice(&window);
                     barge_run_ms += window_ms;
+                    barge_miss = 0;
+                } else if barge_run_ms > 0 && barge_miss < BARGE_MAX_MISS_WINDOWS {
+                    // Brève chute du VAD entre deux syllabes : la parole naturelle n'est pas
+                    // continue au-dessus du seuil, on ne repart pas de zero pour autant.
+                    barge_buf.extend_from_slice(&window);
+                    barge_miss += 1;
                 } else {
                     barge_buf.clear();
                     barge_run_ms = 0;
+                    barge_miss = 0;
+                    (barge_rms_sum, barge_hits) = (0.0, 0);
                 }
             }
 
             if barge_run_ms >= config.barge_in.min_speech_ms {
-                tracing::info!(barge_run_ms, "barge-in vocal : Nestor est interrompu");
+                tracing::info!(
+                    barge_run_ms,
+                    rms_moyen = barge_rms_sum / barge_hits.max(1) as f32,
+                    "barge-in vocal : Nestor est interrompu"
+                );
                 barge_in_gen.fetch_add(1, Ordering::SeqCst);
                 speaking_until_ms.store(0, Ordering::SeqCst);
                 let timeout_ms = config.wake_word.timeout_secs.max(3) * 1000;
@@ -338,10 +368,12 @@ fn listen_loop(
 
                 // La parole qui a declenche l'interruption devient le debut de l'enonce.
                 aec_reference.clear();
-                aec_in.clear();
+                clean_pending.clear();
                 speech_buf = std::mem::take(&mut barge_buf);
                 speech_run_ms = barge_run_ms;
                 barge_run_ms = 0;
+                barge_miss = 0;
+                (barge_rms_sum, barge_hits) = (0.0, 0);
                 in_speech = true;
                 was_suppressing = false;
             }
@@ -349,6 +381,8 @@ fn listen_loop(
         }
         barge_buf.clear();
         barge_run_ms = 0;
+        barge_miss = 0;
+        (barge_rms_sum, barge_hits) = (0.0, 0);
 
         // La transcription Whisper est synchrone : pendant qu'elle tourne (et
         // pendant la lecture), les frames s'accumulent dans le channel. A la
@@ -364,8 +398,6 @@ fn listen_loop(
             );
             (diag_max_prob, diag_raw_peak, diag_clean_peak) = (0.0, 0.0, 0.0);
             pending.clear();
-            aec_in.clear();
-            aec_reference.clear();
             let mut dropped = 0u32;
             while mic_rx.try_recv().is_ok() {
                 dropped += 1;
@@ -384,6 +416,7 @@ fn listen_loop(
             };
             tracing::debug!(frames_received, len = bytes.len(), peak, rms, "frames audio micro en cours de reception");
         }
+        clean_pending.clear();
         pending.extend(decoded);
 
         while pending.len() >= VAD_CHUNK_SAMPLES {

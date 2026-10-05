@@ -184,6 +184,8 @@ pub struct BargeInConfig {
     pub threshold: f32,
     /// Duree de parole continue exigee avant d'interrompre.
     pub min_speech_ms: u64,
+    /// Energie minimale (RMS, apres AEC) d'une fenetre de parole pour compter dans le barge-in.
+    pub min_rms: f32,
     /// Annulation d'echo cote serveur (AEC3, signal de reference = voix de Nestor)
     /// appliquee au micro pendant la lecture, avant la detection de parole.
     pub aec: bool,
@@ -191,7 +193,7 @@ pub struct BargeInConfig {
 
 impl Default for BargeInConfig {
     fn default() -> Self {
-        Self { voice: true, threshold: 0.85, min_speech_ms: 300, aec: true }
+        Self { voice: true, threshold: 0.75, min_speech_ms: 300, min_rms: 0.012, aec: true }
     }
 }
 
