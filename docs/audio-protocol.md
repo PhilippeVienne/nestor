@@ -180,3 +180,17 @@ voix faible parlant par-dessus un echo fort peut etre partiellement supprimee.
 
 Le client web n'arrete plus d'envoyer le micro pendant la lecture : ce blocage
 empechait toute interruption vocale depuis le navigateur.
+
+## Conscience (juge) et journal
+
+- `{"type":"judge_verdict","id":..,"source":"message"|"mission","text":"..",
+  "decision":"allow"|"confirm"|"deny","score":..,"category":"..","rationale":"..",
+  "pending":bool,"at_ms":..}` : chaque decision du juge. `pending` vaut vrai quand
+  une confirmation de l'utilisateur est attendue. Les 30 dernieres sont rejouees a
+  la connexion.
+- `{"type":"resolve_judgement","id":..,"approve":bool}` (client) : approuve ou refuse
+  la demande en attente, comme un « oui » a la voix. Sans effet si elle a deja ete
+  tranchee. Le daemon repond par `{"type":"judge_resolved","id":..,"approved":bool}`,
+  emis aussi quand la confirmation est donnee ou abandonnee a la voix.
+- Le journal d'activite de l'UI est construit cote navigateur a partir des
+  evenements recus : il repart de zero au rechargement de la page.

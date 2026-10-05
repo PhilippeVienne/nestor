@@ -18,6 +18,32 @@ export interface NestorSettings {
   judge_reject_threshold: number;
 }
 
+export type JudgeDecision = 'allow' | 'confirm' | 'deny';
+
+/** Decision du juge de conscience (panneau « Conscience »). */
+export interface JudgeItem {
+  id: number;
+  source: string;
+  text: string;
+  decision: JudgeDecision;
+  score?: number;
+  category?: string;
+  rationale?: string;
+  /** Une confirmation de l'utilisateur est attendue. */
+  pending: boolean;
+  /** Issue d'une confirmation tranchee : approuvee ou non. */
+  resolved?: 'approved' | 'refused';
+  timestamp: Date;
+}
+
+/** Ligne du journal d'activite. */
+export interface ActivityItem {
+  id: string;
+  kind: 'wake' | 'tool' | 'mission' | 'voice' | 'judge' | 'system';
+  text: string;
+  timestamp: Date;
+}
+
 /** Mesures audio en direct pour le bloc Voix. */
 export interface VoiceMeter {
   /** Niveau du micro recu par le daemon. */
@@ -57,6 +83,24 @@ export type ServerEvent =
   | {
       type: 'settings';
       settings: NestorSettings;
+    }
+  | {
+      type: 'judge_verdict';
+      id: number;
+      source: 'message' | 'mission' | string;
+      text: string;
+      decision: JudgeDecision;
+      score?: number;
+      category?: string;
+      rationale?: string;
+      pending: boolean;
+      /** Horodatage de la decision (epoch ms). */
+      at_ms?: number;
+    }
+  | {
+      type: 'judge_resolved';
+      id: number;
+      approved: boolean;
     }
   | {
       type: 'wake_state';
@@ -137,6 +181,11 @@ export type ClientEvent =
       type: 'stop_mission';
       id: number;
       reason?: string;
+    }
+  | {
+      type: 'resolve_judgement';
+      id: number;
+      approve: boolean;
     }
   | {
       type: 'update_settings';

@@ -191,6 +191,7 @@ async fn call_tool(state: &Arc<AppState>, params: Option<&Value>) -> Result<Valu
 
             let judge_config = crate::settings::get().judge_config(&state.config.judge);
             let judgement = crate::judge::evaluate(&judge_config, description, description).await;
+            state.brain.record_verdict("mission", description, &judgement, false);
             match judgement.decision {
                 crate::judge::Decision::Deny => {
                     let rationale = judgement.verdict.map(|v| v.rationale).unwrap_or_default();

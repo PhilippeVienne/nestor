@@ -13,6 +13,9 @@ import {
 } from 'lucide-react';
 import type { ToolCallItem, MissionItem, UsageInfo } from '../types';
 import { MissionPanel } from './MissionPanel';
+import { ConsciencePanel } from './ConsciencePanel';
+import { ActivityLog } from './ActivityLog';
+import type { JudgeItem, ActivityItem } from '../types';
 
 interface ToolConsoleProps {
   toolCalls: ToolCallItem[];
@@ -22,6 +25,10 @@ interface ToolConsoleProps {
   onClear?: () => void;
   isOpen: boolean;
   onToggle: () => void;
+  judgements?: JudgeItem[];
+  judgeModel?: string;
+  onResolveJudgement?: (id: number, approve: boolean) => void;
+  activity?: ActivityItem[];
 }
 
 export const ToolConsole: React.FC<ToolConsoleProps> = ({
@@ -32,7 +39,13 @@ export const ToolConsole: React.FC<ToolConsoleProps> = ({
   onClear,
   isOpen,
   onToggle,
+  judgements = [],
+  judgeModel,
+  onResolveJudgement,
+  activity = [],
 }) => {
+  const [view, setView] = useState<'tools' | 'conscience' | 'activity'>('tools');
+  const pendingJudgements = judgements.filter((j) => j.pending).length;
   const [filter, setFilter] = useState<'all' | 'running' | 'completed'>('all');
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
 
@@ -99,6 +112,42 @@ export const ToolConsole: React.FC<ToolConsoleProps> = ({
         </div>
 
         {isOpen && (
+          <div role="tablist" aria-label="Vues de la console" className="flex shrink-0 border-b border-slate-800/80 text-[11px] font-mono">
+            {(
+              [
+                ['tools', 'Outils'],
+                ['conscience', 'Conscience'],
+                ['activity', 'Journal'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={view === id}
+                onClick={() => setView(id)}
+                className={`flex-1 h-11 px-2 uppercase tracking-wider transition-colors ${
+                  view === id ? 'text-cyan-300 border-b-2 border-cyan-400' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {label}
+                {id === 'conscience' && pendingJudgements > 0 && (
+                  <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                    {pendingJudgements}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {isOpen && view === 'conscience' && (
+          <ConsciencePanel judgements={judgements} model={judgeModel} onResolve={onResolveJudgement ?? (() => {})} />
+        )}
+
+        {isOpen && view === 'activity' && <ActivityLog activity={activity} />}
+
+        {isOpen && view === 'tools' && (
           <>
             <MissionPanel missions={missions} usage={usage} onStopMission={onStopMission} />
 

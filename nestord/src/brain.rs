@@ -12,7 +12,8 @@
 //! - Les appels d'outils (`step_type == "tool"`) sont publies vers la console.
 
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{Context, Result};
@@ -62,7 +63,41 @@ pub struct NestorBrain {
     pending_user_message: Arc<Mutex<Option<String>>>,
     /// Message utilisateur en attente de confirmation orale suite a un
     /// verdict "Confirm" du juge de conscience (`judge.rs`).
-    pending_judged_message: Arc<Mutex<Option<String>>>,
+    pending_judged_message: Arc<Mutex<Option<(u64, String)>>>,
+    /// Dernieres decisions du juge, pour le panneau « Conscience » de l'UI.
+    judge_log: Arc<Mutex<VecDeque<JudgeEntry>>>,
+    judge_seq: Arc<AtomicU64>,
+}
+
+/// Nombre de decisions du juge conservees pour l'instantane de connexion.
+const JUDGE_LOG_LEN: usize = 30;
+
+#[derive(Debug, Clone)]
+struct JudgeEntry {
+    id: u64,
+    source: &'static str,
+    text: String,
+    decision: &'static str,
+    score: Option<u8>,
+    category: Option<String>,
+    rationale: Option<String>,
+    at_ms: u64,
+}
+
+impl JudgeEntry {
+    fn event(&self, pending: bool) -> ServerEvent {
+        ServerEvent::JudgeVerdict {
+            id: self.id,
+            source: self.source.to_string(),
+            text: self.text.clone(),
+            decision: self.decision.to_string(),
+            score: self.score,
+            category: self.category.clone(),
+            rationale: self.rationale.clone(),
+            pending,
+            at_ms: self.at_ms,
+        }
+    }
 }
 
 impl NestorBrain {
@@ -87,6 +122,74 @@ impl NestorBrain {
             is_processing: Arc::new(AtomicBool::new(false)),
             pending_user_message: Arc::new(Mutex::new(None)),
             pending_judged_message: Arc::new(Mutex::new(None)),
+            judge_log: Arc::new(Mutex::new(VecDeque::new())),
+            judge_seq: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// Enregistre et diffuse une decision du juge. `pending` : une confirmation
+    /// de l'utilisateur est attendue. Retourne l'identifiant de la decision.
+    pub fn record_verdict(
+        &self,
+        source: &'static str,
+        text: &str,
+        judgement: &crate::judge::Judgement,
+        pending: bool,
+    ) -> u64 {
+        let id = self.judge_seq.fetch_add(1, Ordering::SeqCst) + 1;
+        let entry = JudgeEntry {
+            id,
+            source,
+            text: text.to_string(),
+            decision: match judgement.decision {
+                crate::judge::Decision::Allow => "allow",
+                crate::judge::Decision::Confirm => "confirm",
+                crate::judge::Decision::Deny => "deny",
+            },
+            score: judgement.verdict.as_ref().map(|v| v.risk_score),
+            category: judgement.verdict.as_ref().map(|v| v.category.clone()),
+            rationale: judgement.verdict.as_ref().map(|v| v.rationale.clone()),
+            at_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0),
+        };
+        let _ = self.events_tx.send(entry.event(pending));
+        let mut log = self.judge_log.lock().unwrap();
+        log.push_back(entry);
+        while log.len() > JUDGE_LOG_LEN {
+            log.pop_front();
+        }
+        id
+    }
+
+    /// Decisions recentes du juge, pour l'instantane envoye a un client qui se connecte.
+    pub fn judge_snapshot(&self) -> Vec<ServerEvent> {
+        let pending_id = self.pending_judged_message.lock().unwrap().as_ref().map(|(id, _)| *id);
+        self.judge_log.lock().unwrap().iter().map(|e| e.event(pending_id == Some(e.id))).collect()
+    }
+
+    /// Tranche, depuis l'UI, une confirmation demandee par le juge. Sans effet si
+    /// `id` ne correspond plus a la demande en attente (deja tranchee a la voix).
+    pub async fn resolve_judgement(&self, id: u64, approve: bool) -> Result<()> {
+        let pending = {
+            let mut guard = self.pending_judged_message.lock().unwrap();
+            match guard.as_ref() {
+                Some((pending_id, _)) if *pending_id == id => guard.take(),
+                _ => None,
+            }
+        };
+        let Some((_, content)) = pending else {
+            tracing::info!(id, "confirmation deja tranchee ou inconnue, ignoree");
+            return Ok(());
+        };
+        let _ = self.events_tx.send(ServerEvent::JudgeResolved { id, approved: approve });
+        if approve {
+            let _ = self.events_tx.send(ServerEvent::State { status: DaemonStatus::Thinking });
+            self.dispatch(&content).await
+        } else {
+            self.announce(&format!("Tres bien, {}, j'abandonne cette demande.", self.config.address_form)).await;
+            Ok(())
         }
     }
 
@@ -196,8 +299,10 @@ impl NestorBrain {
     /// utiliser [`Self::send_internal_report`] pour ceux-la.
     pub async fn send_user_message(&self, content: &str) -> Result<()> {
         let pending = self.pending_judged_message.lock().unwrap().take();
-        if let Some(pending) = pending {
-            if is_affirmative(content) {
+        if let Some((id, pending)) = pending {
+            let approved = is_affirmative(content);
+            let _ = self.events_tx.send(ServerEvent::JudgeResolved { id, approved });
+            if approved {
                 return self.dispatch(&pending).await;
             }
             // Reponse ambigue ou negative : on abandonne la demande en
@@ -208,10 +313,14 @@ impl NestorBrain {
         let judge_config = crate::settings::get().judge_config(&self.config.judge);
         let judgement = crate::judge::evaluate(&judge_config, content, content).await;
         match judgement.decision {
-            crate::judge::Decision::Allow => self.dispatch(content).await,
+            crate::judge::Decision::Allow => {
+                self.record_verdict("message", content, &judgement, false);
+                self.dispatch(content).await
+            }
             crate::judge::Decision::Confirm => {
+                let id = self.record_verdict("message", content, &judgement, true);
                 let rationale = judgement.verdict.map(|v| v.rationale).unwrap_or_default();
-                *self.pending_judged_message.lock().unwrap() = Some(content.to_string());
+                *self.pending_judged_message.lock().unwrap() = Some((id, content.to_string()));
                 let announcement = format!(
                     "Un instant, {} - cette demande me semble a risque : {rationale} Confirmez-vous ?",
                     self.config.address_form
@@ -220,6 +329,7 @@ impl NestorBrain {
                 Ok(())
             }
             crate::judge::Decision::Deny => {
+                self.record_verdict("message", content, &judgement, false);
                 let rationale = judgement.verdict.map(|v| v.rationale).unwrap_or_default();
                 let announcement =
                     format!("Je ne donnerai pas suite, {} : {rationale}", self.config.address_form);

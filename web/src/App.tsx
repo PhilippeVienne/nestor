@@ -7,6 +7,7 @@ import { ControlBar } from './components/ControlBar';
 import { Header } from './components/Header';
 import { VoiceHud } from './components/VoiceHud';
 import { SettingsPanel } from './components/SettingsPanel';
+import { JudgeActions } from './components/ConsciencePanel';
 
 export function App() {
   const {
@@ -32,7 +33,12 @@ export function App() {
     settings,
     updateSettings,
     voiceMeter,
+    judgements,
+    resolveJudgement,
+    activity,
   } = useNestorWebSocket();
+
+  const pendingJudgement = judgements.find((j) => j.pending);
 
   // Default closed to keep UI clean and spacious; opens smoothly when user wants or tools run
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
@@ -111,6 +117,22 @@ export function App() {
             />
           </div>
 
+          {/* Confirmation demandee par le juge : visible meme console fermee */}
+          {pendingJudgement && (
+            <div className="shrink-0 z-10 border-t border-amber-500/40 bg-amber-950/40 px-3 sm:px-6 py-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm select-text">
+              <div className="flex-1 min-w-[220px]">
+                <div className="font-semibold text-amber-200">Confirmation requise par le juge</div>
+                <div className="text-slate-100 break-words">{pendingJudgement.text}</div>
+                {pendingJudgement.rationale && (
+                  <div className="text-[13px] text-slate-300 break-words">{pendingJudgement.rationale}</div>
+                )}
+              </div>
+              <div className="w-full sm:w-[260px]">
+                <JudgeActions id={pendingJudgement.id} onResolve={resolveJudgement} />
+              </div>
+            </div>
+          )}
+
           {/* Bottom Controls Bar (Barge-in + Text Fallback + VU-meter + Remote Audio) */}
           <div className="border-t border-slate-800/80 bg-slate-950/95 backdrop-blur-xl shrink-0 z-10">
             <ControlBar
@@ -134,6 +156,10 @@ export function App() {
           onStopMission={stopMission}
           isOpen={isConsoleOpen}
           onToggle={() => setIsConsoleOpen(!isConsoleOpen)}
+          judgements={judgements}
+          judgeModel={settings?.judge_model}
+          onResolveJudgement={resolveJudgement}
+          activity={activity}
         />
 
         <SettingsPanel

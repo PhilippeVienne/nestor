@@ -20,6 +20,30 @@ pub enum ServerEvent {
     EchoDiscarded {
         text: String,
     },
+    /// Decision du juge de conscience sur un message ou une mission (panneau « Conscience »).
+    /// `pending` : une confirmation de l'utilisateur est attendue (voix ou bouton).
+    JudgeVerdict {
+        id: u64,
+        /// "message" (demande de l'utilisateur) ou "mission" (delegation a un sous-agent).
+        source: String,
+        text: String,
+        /// "allow", "confirm" ou "deny".
+        decision: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        score: Option<u8>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        category: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        rationale: Option<String>,
+        pending: bool,
+        /// Horodatage de la decision (epoch ms).
+        at_ms: u64,
+    },
+    /// Une confirmation en attente a ete tranchee (approuvee, refusee ou abandonnee).
+    JudgeResolved {
+        id: u64,
+        approved: bool,
+    },
     /// Reglages courants (ecran « Reglages ») : a la connexion et a chaque changement.
     Settings {
         settings: crate::settings::Settings,
@@ -155,6 +179,11 @@ pub enum ClientEvent {
         /// Motif facultatif, repris dans le compte rendu d'annulation.
         #[serde(default)]
         reason: Option<String>,
+    },
+    /// Reponse de l'utilisateur, depuis l'UI, a une confirmation demandee par le juge.
+    ResolveJudgement {
+        id: u64,
+        approve: bool,
     },
     /// Nouveaux reglages choisis dans l'UI (objet complet).
     UpdateSettings {

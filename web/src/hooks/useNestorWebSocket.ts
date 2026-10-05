@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type {
+  JudgeItem,
+  ActivityItem,
   NestorSettings,
   VoiceMeter,
   DaemonStatus,
@@ -59,6 +61,10 @@ export function useNestorWebSocket({
   const [isWakeActive, setIsWakeActive] = useState(false);
   const [settings, setSettings] = useState<NestorSettings | null>(null);
   const settingsRef = useRef<NestorSettings | null>(null);
+  const [judgements, setJudgements] = useState<JudgeItem[]>([]);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const lastWakeRef = useRef<boolean | null>(null);
+  const knownJudgeIdsRef = useRef(new Set<number>());
   const [voiceMeter, setVoiceMeter] = useState<VoiceMeter>({ rms: 0, vad: 0 });
   const [isSpeakerActive, setIsSpeakerActive] = useState(true);
   const [isBrowserTtsEnabled, setIsBrowserTtsEnabled] = useState(false);
@@ -104,6 +110,13 @@ export function useNestorWebSocket({
       ...prev,
       { id: `notice-${Date.now()}-${prev.length}`, role: 'notice', text, isFinal: true, timestamp: new Date() },
     ]);
+  }, []);
+
+  // Journal d'activite : les 100 derniers evenements, du plus recent au plus ancien.
+  const pushActivity = useCallback((kind: ActivityItem['kind'], text: string) => {
+    setActivity((prev) =>
+      [{ id: `act-${Date.now()}-${prev.length}`, kind, text, timestamp: new Date() }, ...prev].slice(0, 100)
+    );
   }, []);
 
   const sendEvent = useCallback((event: ClientEvent) => {
@@ -162,6 +175,10 @@ export function useNestorWebSocket({
 
       ws.onopen = () => {
         setConnectionState('connected');
+        pushActivity('system', 'Connexion au daemon établie');
+        // Un daemon redemarre repart de l'identifiant 1 : l'instantane refait la liste.
+        knownJudgeIdsRef.current.clear();
+        setJudgements([]);
         // Rejoue la derniere position connue : le backend n'en a pas garde
         // trace d'une session a l'autre (etat en memoire uniquement).
         if (watchedPositionRef.current) {
@@ -202,7 +219,49 @@ export function useNestorWebSocket({
 
             case 'wake_state':
               setIsWakeActive(data.active);
+              if (lastWakeRef.current !== data.active) {
+                // Le premier evenement est l'instantane de connexion, pas un changement.
+                if (lastWakeRef.current !== null) {
+                  pushActivity('wake', data.active ? 'Réveil : dialogue actif' : 'Retour en veille, fenêtre de dialogue expirée');
+                }
+                lastWakeRef.current = data.active;
+              }
               break;
+
+            case 'judge_verdict': {
+              const item: JudgeItem = {
+                id: data.id,
+                source: data.source,
+                text: data.text,
+                decision: data.decision,
+                score: data.score,
+                category: data.category,
+                rationale: data.rationale,
+                pending: data.pending,
+                timestamp: data.at_ms ? new Date(data.at_ms) : new Date(),
+              };
+              // L'instantane de connexion rejoue les decisions deja connues.
+              const isNew = !knownJudgeIdsRef.current.has(item.id);
+              knownJudgeIdsRef.current.add(item.id);
+              if (isNew && item.decision !== 'allow') {
+                pushActivity('judge', `Juge : ${item.decision === 'deny' ? 'refus' : 'confirmation demandée'} — ${item.text}`);
+              }
+              setJudgements((prev) =>
+                prev.some((j) => j.id === item.id)
+                  ? prev.map((j) => (j.id === item.id ? { ...j, pending: item.pending } : j))
+                  : [item, ...prev].slice(0, 30)
+              );
+              break;
+            }
+
+            case 'judge_resolved': {
+              const { id, approved } = data;
+              setJudgements((prev) =>
+                prev.map((j) => (j.id === id ? { ...j, pending: false, resolved: approved ? 'approved' : 'refused' } : j))
+              );
+              pushActivity('judge', approved ? 'Confirmation approuvée' : 'Confirmation refusée ou abandonnée');
+              break;
+            }
 
             case 'settings':
               settingsRef.current = data.settings;
@@ -211,6 +270,7 @@ export function useNestorWebSocket({
 
             case 'echo_discarded':
               pushNotice('Énoncé écarté : écho de la voix de Nestor');
+              pushActivity('voice', `Écho écarté : « ${data.text} »`);
               break;
 
             case 'interrupt':
@@ -219,6 +279,7 @@ export function useNestorWebSocket({
                 setVoiceMeter((prev) => ({ ...prev, lastInterruptRms: rms }));
               }
               pushNotice('Interruption vocale détectée');
+              pushActivity('voice', 'Interruption vocale, réponse abandonnée');
               // Interruption vocale detectee par le daemon : on coupe la lecture en cours.
               audioPlayerRef.current?.stop();
               playbackEndRef.current = 0;
@@ -334,6 +395,9 @@ export function useNestorWebSocket({
 
             case 'tool_call': {
               const { name, input, status: toolStatus, mission_id: missionId } = data;
+              if (toolStatus === 'running') {
+                pushActivity('tool', `Outil appelé : ${name}${missionId !== undefined ? ` (mission ${missionId})` : ''}`);
+              }
               setToolCalls((prev) => {
                 const existingIndex = prev.findIndex(
                   (t) => t.name === name && t.status === 'running' && t.missionId === missionId
@@ -365,6 +429,10 @@ export function useNestorWebSocket({
 
             case 'mission': {
               const { id, backend, status: missionStatus, description, summary, progress } = data;
+              if (!progress || missionStatus !== 'started') {
+                const labels: Record<string, string> = { started: 'lancée', completed: 'terminée', failed: 'en échec', cancelled: 'annulée' };
+                pushActivity('mission', `Mission ${id} ${labels[missionStatus] ?? missionStatus}`);
+              }
               setMissions((prev) => {
                 const existing = prev.find((m) => m.id === id);
                 if (!existing) {
@@ -442,6 +510,8 @@ export function useNestorWebSocket({
         if (socketRef.current !== ws) return;
 
         setConnectionState('disconnected');
+        pushActivity('system', 'Connexion au daemon perdue');
+        lastWakeRef.current = null;
         socketRef.current = null;
         if (!isExplicitCloseRef.current && autoReconnect && !isSimulated) {
           reconnectTimeoutRef.current = window.setTimeout(
@@ -564,6 +634,14 @@ export function useNestorWebSocket({
     [sendEvent]
   );
 
+  // Reponse, depuis l'UI, a une confirmation demandee par le juge.
+  const resolveJudgement = useCallback(
+    (id: number, approve: boolean) => {
+      sendEvent({ type: 'resolve_judgement', id, approve });
+    },
+    [sendEvent]
+  );
+
   // Barge-in (Interruption immédiate)
   const sendBargeIn = useCallback(() => {
     // 1. Stop web audio output immediately
@@ -664,5 +742,8 @@ export function useNestorWebSocket({
     settings,
     updateSettings,
     voiceMeter,
+    judgements,
+    resolveJudgement,
+    activity,
   };
 }

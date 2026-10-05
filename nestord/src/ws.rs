@@ -61,6 +61,7 @@ fn connection_snapshot(state: &AppState) -> Vec<ServerEvent> {
 
     events.push(state.brain.snapshot());
     events.push(ServerEvent::Settings { settings: crate::settings::get() });
+    events.extend(state.brain.judge_snapshot());
 
     let is_wake_active = now_ms() < state.wake_active_until_ms.load(Ordering::SeqCst);
     events.push(ServerEvent::WakeState { active: is_wake_active });
@@ -193,6 +194,13 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         wake_active_until_ms.store(now_ms() + timeout_ms, Ordering::SeqCst);
                         let _ = events_tx.send(ServerEvent::WakeState { active: true });
                         let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Listening });
+                    }
+                    Ok(ClientEvent::ResolveJudgement { id, approve }) => {
+                        tracing::info!(id, approve, "confirmation du juge tranchee depuis l'UI");
+                        turn_started_gen.store(barge_in_gen.load(Ordering::SeqCst), Ordering::SeqCst);
+                        if let Err(err) = brain.resolve_judgement(id, approve).await {
+                            tracing::error!(?err, "echec du traitement de la confirmation");
+                        }
                     }
                     Ok(ClientEvent::UpdateSettings { settings }) => {
                         let applied = crate::settings::update(settings);
