@@ -43,6 +43,8 @@ const SILENCE_HANGOVER_MS: u64 = 700;
 const TURN_CHECK_STEP_MS: u64 = 160;
 /// Fenetres VAD (32 ms) sous le seuil tolerees au sein d'une meme parole pendant la lecture.
 const BARGE_MAX_MISS_WINDOWS: u32 = 5;
+/// Cadence d'envoi des niveaux micro a l'UI.
+const METER_INTERVAL_MS: u64 = 100;
 /// Duree minimale de parole avant de declencher une transcription (evite le bruit court).
 const MIN_SPEECH_MS: u64 = 250;
 /// Marge ajoutee a la fenetre de suppression d'echo. Le serveur ne connait pas
@@ -105,7 +107,6 @@ pub fn spawn(
         let events_tx = events_tx.clone();
         let mut events_rx = events_tx.subscribe();
         let wake_active_until_ms = wake_active_until_ms.clone();
-        let wake_enabled = config.wake_word.enabled;
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
             let mut was_active = false;
@@ -121,7 +122,7 @@ pub fn spawn(
                         Err(_) => break,
                     }
                 }
-                if !wake_enabled {
+                if !crate::settings::get().wake_word_enabled {
                     continue;
                 }
                 let is_active = now_ms() < wake_active_until_ms.load(Ordering::SeqCst);
@@ -172,7 +173,6 @@ pub fn spawn(
     {
         let piper_dir = models.join("piper");
         let wake_active_until_ms = wake_active_until_ms.clone();
-        let config = config.clone();
         std::thread::spawn(move || {
             if let Err(err) = speak_loop(
                 events_tx,
@@ -184,7 +184,6 @@ pub fn spawn(
                 aec_reference,
                 speaking_until_ms,
                 wake_active_until_ms,
-                config,
             ) {
                 tracing::error!(?err, "pipeline de synthese vocale (TTS) interrompu");
             }
@@ -216,9 +215,13 @@ fn listen_loop(
     // sur des enonces courts et produit alors de l'anglais invente.
     let stt_lang = std::env::var("NESTORD_STT_LANG").unwrap_or_else(|_| "fr".to_string());
 
-    let detector = wake::WakeDetector::new(
-        config.wake_word.enabled,
-        config.wake_word.timeout_secs,
+    // Reglages modifiables depuis l'UI, recopies seulement quand ils changent.
+    let mut live = crate::settings::get();
+    let mut live_version = crate::settings::version();
+
+    let mut detector = wake::WakeDetector::new(
+        live.wake_word_enabled,
+        live.wake_timeout_secs,
         wake_active_until_ms.clone(),
         config.address_form.clone(),
         config.wake_word.ack_phrase.clone(),
@@ -226,11 +229,12 @@ fn listen_loop(
     );
 
     // Fin de tour par modele (Smart Turn) ; repli sur le silence fixe s'il est indisponible.
-    let mut turn = if config.turn.enabled {
+    // Le modele est charge s'il est present : l'UI peut alors l'activer sans redemarrage.
+    let mut turn = {
         let path = models_dir().join("smart-turn-v3.2-cpu.onnx");
         match turn::SmartTurn::load(&path) {
             Ok(t) => {
-                tracing::info!(path = %path.display(), "detection de fin de tour Smart Turn activee");
+                tracing::info!(path = %path.display(), active = live.smart_turn, "modele de fin de tour Smart Turn charge");
                 Some(t)
             }
             Err(err) => {
@@ -238,12 +242,10 @@ fn listen_loop(
                 None
             }
         }
-    } else {
-        None
     };
     let mut last_turn_check_ms: u64 = 0;
 
-    let initial_status = if config.wake_word.enabled {
+    let initial_status = if live.wake_word_enabled {
         DaemonStatus::Idle
     } else {
         DaemonStatus::Listening
@@ -267,7 +269,10 @@ fn listen_loop(
     let mut barge_miss: u32 = 0;
     let (mut barge_rms_sum, mut barge_hits) = (0f32, 0u32);
     // Annulation d'echo (avec le signal envoye aux haut-parleurs) avant le VAD du barge-in.
-    let mut aec = config.barge_in.aec.then(aec::EchoCanceller::new);
+    let mut aec = aec::EchoCanceller::new();
+    // Niveaux envoyes a l'UI (jauges du bloc Voix).
+    let mut last_vad_prob = 0f32;
+    let mut last_meter_ms: u64 = 0;
     let mut aec_in: Vec<f32> = Vec::new();
     // Micro nettoye par l'AEC (consomme par la detection de barge-in pendant la lecture).
     let mut clean_pending: Vec<f32> = Vec::new();
@@ -277,6 +282,25 @@ fn listen_loop(
 
     while let Some(bytes) = mic_rx.blocking_recv() {
         frames_received += 1;
+
+        let version = crate::settings::version();
+        if version != live_version {
+            live_version = version;
+            live = crate::settings::get();
+            detector.configure(live.wake_word_enabled, live.wake_timeout_secs);
+            tracing::info!(?live, "reglages appliques au pipeline d'ecoute");
+        }
+
+        let decoded = pcm16_bytes_to_f32(&bytes);
+
+        // Jauges de l'UI : niveau du micro et derniere probabilite de parole.
+        let now = now_ms();
+        if now >= last_meter_ms + METER_INTERVAL_MS && !decoded.is_empty() {
+            last_meter_ms = now;
+            let peak = decoded.iter().fold(0f32, |m, s| m.max(s.abs()));
+            let rms = (decoded.iter().map(|s| s * s).sum::<f32>() / decoded.len() as f32).sqrt();
+            let _ = events_tx.send(ServerEvent::AudioLevels { rms, peak, vad: Some(last_vad_prob) });
+        }
 
         // Interruption (manuelle ou vocale) depuis la derniere trame : plus rien a lire.
         let current_gen = barge_in_gen.load(Ordering::SeqCst);
@@ -288,19 +312,21 @@ fn listen_loop(
         // L'AEC tourne sur TOUTES les trames (reference a zero hors lecture) : s'il n'etait
         // alimente que pendant la lecture, ses flux rendu/capture auraient des trous et il
         // devrait reconverger a chaque reponse, laissant passer des residus d'echo.
-        if config.barge_in.voice {
-            aec_in.extend(pcm16_bytes_to_f32(&bytes));
+        if live.voice_barge_in {
+            aec_in.extend_from_slice(&decoded);
             while aec_in.len() >= aec::FRAME_SAMPLES {
                 let block: Vec<f32> = aec_in.drain(..aec::FRAME_SAMPLES).collect();
                 let reference = aec_reference.pop_frame();
                 diag_raw_peak = diag_raw_peak.max(block.iter().fold(0f32, |m, s| m.max(s.abs())));
-                let cleaned = match aec.as_mut() {
-                    Some(canceller) => canceller.process(&block, &reference),
-                    None => {
-                        let mut b = [0f32; aec::FRAME_SAMPLES];
-                        b.copy_from_slice(&block);
-                        b
-                    }
+                // L'AEC traite toujours la trame (son etat reste a jour) ; son resultat n'est
+                // utilise que si le reglage est actif.
+                let processed = aec.process(&block, &reference);
+                let cleaned = if live.aec {
+                    processed
+                } else {
+                    let mut b = [0f32; aec::FRAME_SAMPLES];
+                    b.copy_from_slice(&block);
+                    b
                 };
                 diag_clean_peak = diag_clean_peak.max(cleaned.iter().fold(0f32, |m, s| m.max(s.abs())));
                 clean_pending.extend_from_slice(&cleaned);
@@ -318,7 +344,7 @@ fn listen_loop(
             speech_run_ms = 0;
             was_suppressing = true;
 
-            if !config.barge_in.voice {
+            if !live.voice_barge_in {
                 pending.clear();
                 clean_pending.clear();
                 continue;
@@ -329,11 +355,12 @@ fn listen_loop(
                 let window: Vec<f32> = clean_pending.drain(..VAD_CHUNK_SAMPLES).collect();
                 let window_ms = (VAD_CHUNK_SAMPLES as f64 / MIC_SAMPLE_RATE as f64 * 1000.0) as u64;
                 let prob = vad.process(&window).unwrap_or(0.0);
+                last_vad_prob = prob;
                 diag_max_prob = diag_max_prob.max(prob);
                 let window_rms = (window.iter().map(|s| s * s).sum::<f32>() / window.len() as f32).sqrt();
                 // Un residu d'echo peut ressembler a de la parole pour le VAD mais reste bien
                 // plus faible qu'une voix proche du micro : plancher d'energie apres AEC.
-                if prob >= config.barge_in.threshold && window_rms >= config.barge_in.min_rms {
+                if prob >= live.barge_threshold && window_rms >= live.barge_min_rms {
                     barge_rms_sum += window_rms;
                     barge_hits += 1;
                     barge_buf.extend_from_slice(&window);
@@ -352,17 +379,14 @@ fn listen_loop(
                 }
             }
 
-            if barge_run_ms >= config.barge_in.min_speech_ms {
-                tracing::info!(
-                    barge_run_ms,
-                    rms_moyen = barge_rms_sum / barge_hits.max(1) as f32,
-                    "barge-in vocal : Nestor est interrompu"
-                );
+            if barge_run_ms >= live.barge_min_speech_ms {
+                let rms_moyen = barge_rms_sum / barge_hits.max(1) as f32;
+                tracing::info!(barge_run_ms, rms_moyen, "barge-in vocal : Nestor est interrompu");
                 barge_in_gen.fetch_add(1, Ordering::SeqCst);
                 speaking_until_ms.store(0, Ordering::SeqCst);
-                let timeout_ms = config.wake_word.timeout_secs.max(3) * 1000;
+                let timeout_ms = live.wake_timeout_secs.max(3) * 1000;
                 wake_active_until_ms.store(now_ms() + timeout_ms, Ordering::SeqCst);
-                let _ = events_tx.send(ServerEvent::Interrupt);
+                let _ = events_tx.send(ServerEvent::Interrupt { rms: Some(rms_moyen) });
                 let _ = events_tx.send(ServerEvent::WakeState { active: true });
                 let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Listening });
 
@@ -406,7 +430,6 @@ fn listen_loop(
             continue;
         }
 
-        let decoded = pcm16_bytes_to_f32(&bytes);
         if frames_received % 50 == 1 {
             let peak = decoded.iter().fold(0.0_f32, |acc, s| acc.max(s.abs()));
             let rms = if decoded.is_empty() {
@@ -430,6 +453,7 @@ fn listen_loop(
                     continue;
                 }
             };
+            last_vad_prob = prob;
 
             windows_analyzed += 1;
             if windows_analyzed % 20 == 1 {
@@ -457,7 +481,7 @@ fn listen_loop(
                 silence_run_ms += window_ms;
                 speech_buf.extend_from_slice(&window);
 
-                let end_of_turn = match turn.as_mut() {
+                let end_of_turn = match turn.as_mut().filter(|_| live.smart_turn) {
                     // Silence suffisant : on consulte le modele toutes les TURN_CHECK_STEP_MS,
                     // avec une fin forcee au bout de max_silence_ms.
                     Some(model) => {
@@ -521,6 +545,7 @@ fn listen_loop(
                             // Echo de la propre voix de Nestor : ni dialogue ni reveil.
                             if recent_speech.is_echo(now, text) {
                                 tracing::info!(%text, "enonce ecarte : echo de la voix de Nestor");
+                                let _ = events_tx.send(ServerEvent::EchoDiscarded { text: text.to_string() });
                                 let status = if detector.is_active(now) { DaemonStatus::Listening } else { DaemonStatus::Idle };
                                 let _ = events_tx.send(ServerEvent::State { status });
                                 continue;
@@ -616,7 +641,6 @@ fn speak_loop(
     aec_reference: Arc<aec::Reference>,
     speaking_until_ms: Arc<AtomicU64>,
     wake_active_until_ms: Arc<AtomicU64>,
-    config: Arc<Config>,
 ) -> Result<()> {
     let voice = std::env::var("NESTORD_TTS_VOICE").unwrap_or_else(|_| "fr_FR-upmc-medium".to_string());
     let speaker_id = std::env::var("NESTORD_TTS_SPEAKER")
@@ -624,12 +648,12 @@ fn speak_loop(
         .and_then(|v| v.parse::<i64>().ok())
         .unwrap_or(1); // locuteur 1 du modele upmc = Pierre (masculin)
 
-    let timeout_ms = config.wake_word.timeout_secs.max(3) * 1000;
     let synth = tts::PiperTts::load(piper_dir, &voice, speaker_id).context("chargement Piper TTS")?;
     let sample_rate = synth.sample_rate();
 
     while let Some(sentence) = tts_rx.blocking_recv() {
         let start_gen = barge_in_gen.load(Ordering::SeqCst);
+        let timeout_ms = crate::settings::get().wake_timeout_secs.max(3) * 1000;
 
         // Reponse interrompue (barge-in) : on abandonne ses phrases restantes tant
         // qu'un nouveau tour utilisateur n'a pas commence.

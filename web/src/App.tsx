@@ -5,6 +5,8 @@ import { DialogueStream } from './components/DialogueStream';
 import { ToolConsole } from './components/ToolConsole';
 import { ControlBar } from './components/ControlBar';
 import { Header } from './components/Header';
+import { VoiceHud } from './components/VoiceHud';
+import { SettingsPanel } from './components/SettingsPanel';
 
 export function App() {
   const {
@@ -27,10 +29,14 @@ export function App() {
     toggleMic,
     isSpeakerActive,
     toggleSpeaker,
+    settings,
+    updateSettings,
+    voiceMeter,
   } = useNestorWebSocket();
 
   // Default closed to keep UI clean and spacious; opens smoothly when user wants or tools run
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Automatically open console when tools start running if not already open
   const runningToolsCount = toolCalls.filter((t) => t.status === 'running').length;
@@ -54,6 +60,7 @@ export function App() {
         runningToolsCount={runningToolsCount}
         backendStatus={backendStatus}
         onSetBackend={setBackend}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       {/* Main Workspace Body */}
@@ -92,6 +99,9 @@ export function App() {
             />
           </div>
 
+          {/* Bloc Voix : ce que le daemon entend face au seuil d'interruption */}
+          <VoiceHud meter={voiceMeter} settings={settings} />
+
           {/* Dialogue Section (STT voice transcripts + Streaming Claude Markdown) */}
           <div className="flex-1 overflow-hidden relative bg-slate-950/40">
             <DialogueStream
@@ -124,6 +134,14 @@ export function App() {
           onStopMission={stopMission}
           isOpen={isConsoleOpen}
           onToggle={() => setIsConsoleOpen(!isConsoleOpen)}
+        />
+
+        <SettingsPanel
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          settings={settings}
+          onChange={updateSettings}
+          lastInterruptRms={voiceMeter.lastInterruptRms}
         />
       </div>
     </div>

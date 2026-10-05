@@ -60,6 +60,12 @@ impl WakeDetector {
         }
     }
 
+    /// Applique un changement de reglages (mot-cle exige ou non, duree de la fenetre).
+    pub fn configure(&mut self, enabled: bool, timeout_secs: u64) {
+        self.enabled = enabled;
+        self.timeout_ms = timeout_secs.max(3) * 1000;
+    }
+
     /// Indique si Nestor est actuellement dans une fenetre de dialogue actif.
     pub fn is_active(&self, now_ms: u64) -> bool {
         now_ms < self.wake_active_until_ms.load(Ordering::SeqCst)

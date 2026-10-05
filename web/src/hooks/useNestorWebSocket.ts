@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type {
+  NestorSettings,
+  VoiceMeter,
   DaemonStatus,
   AudioLevels,
   ServerEvent,
@@ -55,6 +57,9 @@ export function useNestorWebSocket({
   // Web Audio state
   const [isMicActive, setIsMicActive] = useState(false);
   const [isWakeActive, setIsWakeActive] = useState(false);
+  const [settings, setSettings] = useState<NestorSettings | null>(null);
+  const settingsRef = useRef<NestorSettings | null>(null);
+  const [voiceMeter, setVoiceMeter] = useState<VoiceMeter>({ rms: 0, vad: 0 });
   const [isSpeakerActive, setIsSpeakerActive] = useState(true);
   const [isBrowserTtsEnabled, setIsBrowserTtsEnabled] = useState(false);
 
@@ -69,11 +74,6 @@ export function useNestorWebSocket({
   const audioRecorderRef = useRef<AudioRecorder | null>(null);
   const playbackEndRef = useRef(0);
   const hasReceivedAudioChunkRef = useRef(false);
-  // Usage typique : micro + haut-parleurs. Pendant la lecture, le micro
-  // reentend la synthese ; si on l'envoie au backend, elle est transcrite et
-  // renvoyee a Claude comme un nouveau message, ce qui coupe sa reponse.
-  const isPlayingRef = useRef(false);
-
   // Initialize AudioPlayer on mount
   useEffect(() => {
     audioPlayerRef.current = new AudioPlayer({
@@ -81,7 +81,6 @@ export function useNestorWebSocket({
         setAudioLevels({ rms, peak });
       },
       onPlaybackStateChange: (isPlaying) => {
-        isPlayingRef.current = isPlaying;
         if (isPlaying) {
           setStatus('speaking');
         } else {
@@ -99,6 +98,14 @@ export function useNestorWebSocket({
   }, []);
 
   // Send ClientEvent (JSON)
+  // Evenement du pipeline (interruption, echo ecarte) insere dans le fil du dialogue.
+  const pushNotice = useCallback((text: string) => {
+    setMessages((prev) => [
+      ...prev,
+      { id: `notice-${Date.now()}-${prev.length}`, role: 'notice', text, isFinal: true, timestamp: new Date() },
+    ]);
+  }, []);
+
   const sendEvent = useCallback((event: ClientEvent) => {
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify(event));
@@ -197,7 +204,21 @@ export function useNestorWebSocket({
               setIsWakeActive(data.active);
               break;
 
+            case 'settings':
+              settingsRef.current = data.settings;
+              setSettings(data.settings);
+              break;
+
+            case 'echo_discarded':
+              pushNotice('Énoncé écarté : écho de la voix de Nestor');
+              break;
+
             case 'interrupt':
+              if (typeof data.rms === 'number') {
+                const rms = data.rms;
+                setVoiceMeter((prev) => ({ ...prev, lastInterruptRms: rms }));
+              }
+              pushNotice('Interruption vocale détectée');
               // Interruption vocale detectee par le daemon : on coupe la lecture en cours.
               audioPlayerRef.current?.stop();
               playbackEndRef.current = 0;
@@ -205,6 +226,10 @@ export function useNestorWebSocket({
               break;
 
             case 'audio_levels':
+              if (typeof data.vad === 'number') {
+                const vad = data.vad;
+                setVoiceMeter((prev) => ({ ...prev, rms: data.rms, vad }));
+              }
               // If not actively playing or recording locally, use server's levels
               if (!audioRecorderRef.current?.isActive()) {
                 setAudioLevels({
@@ -482,9 +507,9 @@ export function useNestorWebSocket({
         const recorder = new AudioRecorder({
           sampleRate: 16000,
           onAudioChunk: (chunkBuffer, pcm16Base64) => {
-            // Ne rien envoyer pendant que Nestor parle : ce serait son propre
-            // echo (micro + haut-parleurs), transcrit puis renvoye a Claude.
-            if (isPlayingRef.current) return;
+            // Le micro reste envoye pendant que Nestor parle : c'est ce qui permet de
+            // l'interrompre a la voix. L'echo est traite par le daemon (annulation
+            // d'echo avec reference, filtre d'auto-ecoute).
 
             // 1. Send binary frame (high performance)
             sendBinaryAudio(chunkBuffer);
@@ -522,6 +547,19 @@ export function useNestorWebSocket({
   const stopMission = useCallback(
     (id: number, reason?: string) => {
       sendEvent({ type: 'stop_mission', id, reason });
+    },
+    [sendEvent]
+  );
+
+  // Reglages : applique tout de suite a l'ecran, le daemon confirme par un evenement `settings`.
+  const updateSettings = useCallback(
+    (patch: Partial<NestorSettings>) => {
+      const prev = settingsRef.current;
+      if (!prev) return;
+      const next = { ...prev, ...patch };
+      settingsRef.current = next;
+      setSettings(next);
+      sendEvent({ type: 'update_settings', settings: next });
     },
     [sendEvent]
   );
@@ -623,5 +661,8 @@ export function useNestorWebSocket({
     toggleSpeaker: () => setIsSpeakerActive(!isSpeakerActive),
     isBrowserTtsEnabled,
     setIsBrowserTtsEnabled,
+    settings,
+    updateSettings,
+    voiceMeter,
   };
 }

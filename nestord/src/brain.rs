@@ -205,7 +205,8 @@ impl NestorBrain {
             // une nouvelle demande a part entiere.
         }
 
-        let judgement = crate::judge::evaluate(&self.config.judge, content, content).await;
+        let judge_config = crate::settings::get().judge_config(&self.config.judge);
+        let judgement = crate::judge::evaluate(&judge_config, content, content).await;
         match judgement.decision {
             crate::judge::Decision::Allow => self.dispatch(content).await,
             crate::judge::Decision::Confirm => {

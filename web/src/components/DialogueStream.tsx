@@ -87,6 +87,15 @@ export const DialogueStream: React.FC<DialogueStreamProps> = ({
           </div>
         ) : (
           messages.map((msg) => {
+            if (msg.role === 'notice') {
+              return (
+                <div key={msg.id} className="flex justify-center">
+                  <span className="px-3 py-1 rounded-full border border-amber-500/30 bg-amber-950/30 text-amber-200 text-[11px] font-mono">
+                    {msg.text}
+                  </span>
+                </div>
+              );
+            }
             const isUser = msg.role === 'user';
             return (
               <div

@@ -60,11 +60,12 @@ fn connection_snapshot(state: &AppState) -> Vec<ServerEvent> {
     let mut events = Vec::new();
 
     events.push(state.brain.snapshot());
+    events.push(ServerEvent::Settings { settings: crate::settings::get() });
 
     let is_wake_active = now_ms() < state.wake_active_until_ms.load(Ordering::SeqCst);
     events.push(ServerEvent::WakeState { active: is_wake_active });
     events.push(ServerEvent::State {
-        status: if is_wake_active || !state.config.wake_word.enabled {
+        status: if is_wake_active || !crate::settings::get().wake_word_enabled {
             DaemonStatus::Listening
         } else {
             DaemonStatus::Idle
@@ -188,13 +189,18 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         // Le front a stoppe sa lecture : le micro redevient
                         // exploitable immediatement.
                         speaking_until_ms.store(0, Ordering::SeqCst);
-                        let timeout_ms = config.wake_word.timeout_secs.max(3) * 1000;
+                        let timeout_ms = crate::settings::get().wake_timeout_secs.max(3) * 1000;
                         wake_active_until_ms.store(now_ms() + timeout_ms, Ordering::SeqCst);
                         let _ = events_tx.send(ServerEvent::WakeState { active: true });
                         let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Listening });
                     }
+                    Ok(ClientEvent::UpdateSettings { settings }) => {
+                        let applied = crate::settings::update(settings);
+                        tracing::info!(?applied, "reglages modifies depuis l'UI");
+                        let _ = events_tx.send(ServerEvent::Settings { settings: applied });
+                    }
                     Ok(ClientEvent::SendText { content }) => {
-                        let timeout_ms = config.wake_word.timeout_secs.max(3) * 1000;
+                        let timeout_ms = crate::settings::get().wake_timeout_secs.max(3) * 1000;
                         wake_active_until_ms.store(now_ms() + timeout_ms, Ordering::SeqCst);
                         let _ = events_tx.send(ServerEvent::WakeState { active: true });
                         let _ = events_tx.send(ServerEvent::Transcript {

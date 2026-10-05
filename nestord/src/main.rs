@@ -12,6 +12,7 @@ mod mcp;
 mod mission;
 mod onboard;
 mod protocol;
+mod settings;
 mod todo;
 mod usage;
 mod ws;
@@ -67,7 +68,8 @@ async fn main() -> anyhow::Result<()> {
     let speaking_until_ms = Arc::new(AtomicU64::new(0));
     let usage = Arc::new(usage::UsageState::default());
     let config = Arc::new(config::Config::load());
-    judge::spawn_warmup(config.judge.clone());
+    settings::init(&config);
+    judge::spawn_warmup(settings::get().judge_config(&config.judge));
     let todos = Arc::new(todo::TodoStore::open_default()?);
 
     // La session conversationnelle n'existe pas encore : elle est renseignee

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wifi, WifiOff, Cpu, RefreshCw, Volume2, Mic, Terminal, Zap, Sparkles } from 'lucide-react';
+import { Wifi, WifiOff, Cpu, RefreshCw, Volume2, Mic, Terminal, Zap, Sparkles, SlidersHorizontal } from 'lucide-react';
 import type { DaemonStatus, ConnectionState, BackendStatusInfo } from '../types';
 
 interface HeaderProps {
@@ -13,6 +13,7 @@ interface HeaderProps {
   runningToolsCount?: number;
   backendStatus?: BackendStatusInfo;
   onSetBackend?: (backend: string) => void;
+  onOpenSettings?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -26,6 +27,7 @@ export const Header: React.FC<HeaderProps> = ({
   runningToolsCount = 0,
   backendStatus,
   onSetBackend,
+  onOpenSettings,
 }) => {
   const getStatusBadge = () => {
     switch (status) {
@@ -164,6 +166,17 @@ export const Header: React.FC<HeaderProps> = ({
         {getConnectionBadge()}
 
         {/* Toggle Tool & Missions Console (Desktop & Mobile) */}
+        {onOpenSettings && (
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            title="Réglages"
+            className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg border border-slate-700/80 bg-slate-900/60 text-slate-300 hover:text-white hover:border-slate-500 text-[11px] sm:text-xs font-mono transition-colors"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Réglages</span>
+          </button>
+        )}
         {onToggleConsole && (
           <button
             onClick={onToggleConsole}

@@ -1,6 +1,32 @@
 export type DaemonStatus = 'listening' | 'thinking' | 'speaking' | 'idle';
 
-export type Role = 'user' | 'assistant';
+/** `notice` : evenement du pipeline affiche dans le fil (interruption, echo ecarte). */
+export type Role = 'user' | 'assistant' | 'notice';
+
+/** Reglages modifiables a chaud (cf. nestord/src/settings.rs). */
+export interface NestorSettings {
+  voice_barge_in: boolean;
+  aec: boolean;
+  barge_threshold: number;
+  barge_min_speech_ms: number;
+  barge_min_rms: number;
+  smart_turn: boolean;
+  wake_word_enabled: boolean;
+  wake_timeout_secs: number;
+  judge_model: string;
+  judge_confirm_threshold: number;
+  judge_reject_threshold: number;
+}
+
+/** Mesures audio en direct pour le bloc Voix. */
+export interface VoiceMeter {
+  /** Niveau du micro recu par le daemon. */
+  rms: number;
+  /** Probabilite de parole (VAD). */
+  vad: number;
+  /** Niveau moyen de la derniere interruption vocale detectee. */
+  lastInterruptRms?: number;
+}
 
 export type ToolCallStatus = 'running' | 'completed';
 
@@ -21,6 +47,16 @@ export type ServerEvent =
     }
   | {
       type: 'interrupt';
+      /** Niveau moyen (RMS) de la parole qui a declenche l'interruption. */
+      rms?: number;
+    }
+  | {
+      type: 'echo_discarded';
+      text: string;
+    }
+  | {
+      type: 'settings';
+      settings: NestorSettings;
     }
   | {
       type: 'wake_state';
@@ -30,6 +66,8 @@ export type ServerEvent =
       type: 'audio_levels';
       rms: number;
       peak: number;
+      /** Probabilite de parole (VAD) vue par le daemon. */
+      vad?: number;
     }
   | {
       type: 'transcript';
@@ -99,6 +137,10 @@ export type ClientEvent =
       type: 'stop_mission';
       id: number;
       reason?: string;
+    }
+  | {
+      type: 'update_settings';
+      settings: NestorSettings;
     }
   | {
       type: 'set_backend';

@@ -159,3 +159,24 @@ est trop timide ou trop sensible.
 Limites connues (simulation sans AEC client) : apres une interruption, l'AEC peut
 laisser passer des residus pendant sa reconvergence (quelques secondes), et une
 voix faible parlant par-dessus un echo fort peut etre partiellement supprimee.
+
+## Reglages a chaud et mesures pour l'UI
+
+- `{"type":"settings","settings":{...}}` (serveur) : reglages courants, envoyes a la
+  connexion et a chaque changement. `{"type":"update_settings","settings":{...}}`
+  (client) : objet complet ; le daemon borne les valeurs, les applique tout de suite
+  et les enregistre dans `~/.config/nestord/ui-settings.toml`. `config.toml` n'est
+  jamais reecrit. Priorite au demarrage : config.toml < ui-settings.toml < variables
+  d'environnement. Champs : interruption vocale, AEC, seuil, duree et energie
+  minimales du barge-in, Smart Turn, mot-cle exige, fenetre de dialogue, modele et
+  seuils du juge (cf. `nestord/src/settings.rs`).
+- `{"type":"audio_levels","rms":..,"peak":..,"vad":..}` : niveau du micro recu et
+  derniere probabilite de parole, environ 10 fois par seconde tant que des trames
+  micro arrivent.
+- `{"type":"interrupt","rms":..}` : `rms` est le niveau moyen de la parole qui a
+  declenche l'interruption, a comparer a l'energie minimale reglee.
+- `{"type":"echo_discarded","text":".."}` : enonce ecarte car il recopiait la voix
+  de Nestor.
+
+Le client web n'arrete plus d'envoyer le micro pendant la lecture : ce blocage
+empechait toute interruption vocale depuis le navigateur.

@@ -10,16 +10,30 @@ pub enum ServerEvent {
     /// Nestor vient d'etre interrompu a la voix : les clients doivent couper
     /// immediatement leur lecture audio en cours.
     #[cfg_attr(not(feature = "full-audio"), allow(dead_code))]
-    Interrupt,
+    Interrupt {
+        /// Niveau moyen (RMS) de la parole qui a declenche l'interruption.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        rms: Option<f32>,
+    },
+    /// Enonce transcrit puis ecarte car il recopiait la voix de Nestor (echo).
+    #[cfg_attr(not(feature = "full-audio"), allow(dead_code))]
+    EchoDiscarded {
+        text: String,
+    },
+    /// Reglages courants (ecran « Reglages ») : a la connexion et a chaque changement.
+    Settings {
+        settings: crate::settings::Settings,
+    },
     State {
         status: DaemonStatus,
     },
-    /// Amplitude du flux micro, pour l'orbe reactif de l'UI. Pas encore emis
-    /// par `audio/mod.rs` (VAD/RMS a cabler cote pipeline d'entree).
-    #[allow(dead_code)]
+    /// Niveau du flux micro et probabilite de parole (VAD), ~10 fois par seconde.
+    #[cfg_attr(not(feature = "full-audio"), allow(dead_code))]
     AudioLevels {
         rms: f32,
         peak: f32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        vad: Option<f32>,
     },
     Transcript {
         role: Role,
@@ -141,6 +155,10 @@ pub enum ClientEvent {
         /// Motif facultatif, repris dans le compte rendu d'annulation.
         #[serde(default)]
         reason: Option<String>,
+    },
+    /// Nouveaux reglages choisis dans l'UI (objet complet).
+    UpdateSettings {
+        settings: crate::settings::Settings,
     },
     /// Bascule manuelle du backend conversationnel ("claude", "agy", ou "auto").
     SetBackend {
