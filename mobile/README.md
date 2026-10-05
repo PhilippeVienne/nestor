@@ -26,6 +26,9 @@ Cette application transforme votre smartphone Android en combiné d'appel dédi�
   - 🟢 **Émeraude** : Nestor vous répond vocalement.
 - **Barge-In Instantané** : Coupure instantanée de la synthèse dès que vous reprenez la parole ou appuyez sur le bouton *Interrompre*.
 - **Retranscription en Direct & Clavier** : Affichage des bulles de discussion en temps réel et tiroir clavier pour saisir des requêtes textuelles pendant l'appel.
+- **Confirmations en attente** : une demande du juge (`judge_verdict` avec `pending`) ou une écriture d'un connecteur externe (`tool_approval`) s'affiche dans l'écran d'appel avec « Approuver » / « Refuser » ; le bandeau disparaît à l'événement `*_resolved` du daemon.
+- **Interruption vocale** : une pastille brève signale l'événement `interrupt` reçu du daemon.
+- L'app s'annonce au daemon avec `?client=mobile` (panneau « Appareils »).
 
 ---
 

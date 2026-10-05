@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
+  Animated,
   View,
   Text,
   StyleSheet,
@@ -13,12 +14,116 @@ import {
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SoundWaveOrb } from '../components/SoundWaveOrb';
-import { useNestorCall } from '../hooks/useNestorCall';
+import { useNestorCall, PendingRequest } from '../hooks/useNestorCall';
 
 interface CallScreenProps {
   call: ReturnType<typeof useNestorCall>;
   onEndCall: () => void;
 }
+
+/** Ce qui est demande, en une phrase. */
+function requestTitle(request: PendingRequest): string {
+  if (request.kind === 'tool') return `${request.server} veut écrire`;
+  return request.source === 'mission' ? 'Mission à confirmer' : 'Demande à confirmer';
+}
+
+/** Une demande en attente : quoi, pourquoi, puis « Approuver » / « Refuser ». */
+const PendingRequestCard: React.FC<{
+  request: PendingRequest;
+  onResolve: (request: PendingRequest, approve: boolean) => Promise<boolean>;
+}> = ({ request, onResolve }) => {
+  // Reponse envoyee : la carte ne disparait qu'a la confirmation du daemon.
+  const [sent, setSent] = useState<'approve' | 'refuse' | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  // Sans confirmation du daemon au bout de quelques secondes, les boutons
+  // redeviennent actifs plutot que de rester bloques.
+  useEffect(() => {
+    if (sent === null) return;
+    const timer = setTimeout(() => setSent(null), 5000);
+    return () => clearTimeout(timer);
+  }, [sent]);
+
+  const answer = async (approve: boolean) => {
+    setFailed(false);
+    setSent(approve ? 'approve' : 'refuse');
+    let ok = false;
+    try {
+      ok = await onResolve(request, approve);
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      setSent(null);
+      setFailed(true);
+    }
+  };
+
+  return (
+    <View style={styles.pendingCard} accessibilityRole="alert">
+      <View style={styles.pendingHeader}>
+        <Ionicons name="alert-circle" size={16} color="#fbbf24" />
+        <Text style={styles.pendingTitle}>{requestTitle(request)}</Text>
+      </View>
+
+      {request.kind === 'tool' ? (
+        <>
+          <Text style={styles.pendingLabel}>
+            Serveur <Text style={styles.pendingMono}>{request.server}</Text> · outil{' '}
+            <Text style={styles.pendingMono}>{request.tool}</Text>
+          </Text>
+          {request.arguments.trim().length > 0 && (
+            <View style={styles.pendingArgsBox}>
+              <Text style={styles.pendingArgs}>{request.arguments}</Text>
+            </View>
+          )}
+          <Text style={styles.pendingReason}>
+            Écriture par un connecteur externe : elle n'est exécutée qu'avec votre accord.
+          </Text>
+        </>
+      ) : (
+        <>
+          <Text style={styles.pendingText}>{request.text}</Text>
+          {!!request.rationale && <Text style={styles.pendingReason}>{request.rationale}</Text>}
+          {(request.category || request.score !== undefined) && (
+            <Text style={styles.pendingMeta}>
+              {[request.category, request.score !== undefined ? `score ${request.score}` : null]
+                .filter(Boolean)
+                .join(' · ')}
+            </Text>
+          )}
+        </>
+      )}
+
+      {failed && (
+        <Text style={styles.pendingError}>Réponse non envoyée (connexion indisponible). Réessayez.</Text>
+      )}
+
+      <View style={styles.pendingActions}>
+        <TouchableOpacity
+          style={[styles.pendingButton, styles.pendingApprove, sent !== null && styles.pendingButtonDisabled]}
+          onPress={() => answer(true)}
+          disabled={sent !== null}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={`Approuver : ${requestTitle(request)}`}
+        >
+          <Text style={styles.pendingApproveText}>{sent === 'approve' ? 'Envoyé…' : 'Approuver'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.pendingButton, styles.pendingRefuse, sent !== null && styles.pendingButtonDisabled]}
+          onPress={() => answer(false)}
+          disabled={sent !== null}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={`Refuser : ${requestTitle(request)}`}
+        >
+          <Text style={styles.pendingRefuseText}>{sent === 'refuse' ? 'Envoyé…' : 'Refuser'}</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
 
 export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
@@ -29,6 +134,23 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
   useEffect(() => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   }, [call.messages]);
+
+  // Signal bref a chaque interruption vocale detectee par le daemon : une pastille
+  // qui apparait puis s'efface, sans deplacer le reste de l'ecran.
+  const interruptOpacity = useRef(new Animated.Value(0)).current;
+  const seenInterruptRef = useRef(call.interruptCount);
+  useEffect(() => {
+    if (call.interruptCount === seenInterruptRef.current) return;
+    seenInterruptRef.current = call.interruptCount;
+    interruptOpacity.stopAnimation();
+    const pulse = Animated.sequence([
+      Animated.timing(interruptOpacity, { toValue: 1, duration: 120, useNativeDriver: true }),
+      Animated.delay(900),
+      Animated.timing(interruptOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+    ]);
+    pulse.start();
+    return () => pulse.stop();
+  }, [call.interruptCount, interruptOpacity]);
 
   const handleSendText = () => {
     if (!inputText.trim()) return;
@@ -180,7 +302,35 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
           >
             <Text style={styles.statusPillText}>{getStatusText()}</Text>
           </View>
+          <Animated.View
+            style={[styles.interruptPill, { opacity: interruptOpacity }]}
+            pointerEvents="none"
+            accessibilityLiveRegion="polite"
+          >
+            <MaterialCommunityIcons name="hand-back-right" size={12} color="#f59e0b" />
+            <Text style={styles.interruptPillText}>Interruption détectée</Text>
+          </Animated.View>
         </View>
+
+        {/* Demandes en attente d'une reponse (juge, ecritures des connecteurs externes) */}
+        {call.pendingRequests.length > 0 && (
+          <View style={styles.pendingSection}>
+            {call.pendingRequests.length > 1 && (
+              <Text style={styles.pendingCount}>
+                {call.pendingRequests.length} demandes attendent votre réponse
+              </Text>
+            )}
+            <ScrollView contentContainerStyle={styles.pendingList} keyboardShouldPersistTaps="handled">
+              {call.pendingRequests.map((request) => (
+                <PendingRequestCard
+                  key={`${request.kind}-${request.id}`}
+                  request={request}
+                  onResolve={call.resolveRequest}
+                />
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         {/* Live Conversation Transcript */}
         <View style={styles.transcriptSection}>
@@ -418,6 +568,129 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 12,
     fontWeight: '600',
+  },
+  interruptPill: {
+    position: 'absolute',
+    top: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderColor: 'rgba(245, 158, 11, 0.45)',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  interruptPillText: {
+    color: '#fbbf24',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  pendingSection: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    maxHeight: '45%',
+  },
+  pendingCount: {
+    color: '#fbbf24',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  pendingList: {
+    gap: 8,
+  },
+  pendingCard: {
+    backgroundColor: 'rgba(69, 26, 3, 0.55)',
+    borderColor: 'rgba(245, 158, 11, 0.6)',
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    gap: 6,
+  },
+  pendingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  pendingTitle: {
+    color: '#fde68a',
+    fontSize: 14,
+    fontWeight: '700',
+    flexShrink: 1,
+  },
+  pendingText: {
+    color: '#f8fafc',
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  pendingLabel: {
+    color: '#e2e8f0',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  pendingMono: {
+    color: '#f8fafc',
+    fontWeight: '600',
+    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier',
+  },
+  pendingArgsBox: {
+    backgroundColor: 'rgba(2, 6, 23, 0.6)',
+    borderRadius: 8,
+    padding: 8,
+  },
+  pendingArgs: {
+    color: '#cbd5e1',
+    fontSize: 12,
+    lineHeight: 16,
+    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier',
+  },
+  pendingReason: {
+    color: '#cbd5e1',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  pendingMeta: {
+    color: '#94a3b8',
+    fontSize: 11,
+  },
+  pendingError: {
+    color: '#fda4af',
+    fontSize: 12,
+  },
+  pendingActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
+  },
+  pendingButton: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pendingButtonDisabled: {
+    opacity: 0.5,
+  },
+  pendingApprove: {
+    backgroundColor: 'rgba(8, 145, 178, 0.45)',
+    borderColor: '#22d3ee',
+  },
+  pendingApproveText: {
+    color: '#ecfeff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  pendingRefuse: {
+    borderColor: '#64748b',
+  },
+  pendingRefuseText: {
+    color: '#e2e8f0',
+    fontSize: 15,
+    fontWeight: '700',
   },
   transcriptSection: {
     flex: 1,

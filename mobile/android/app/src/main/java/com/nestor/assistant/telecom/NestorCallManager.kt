@@ -71,6 +71,24 @@ class NestorCallManager private constructor(private val context: Context) {
         fun onTranscript(role: String, text: String, isPartial: Boolean)
         fun onToolCall(id: String, name: String, status: String)
         fun onBackendStatus(activeBackend: String, isFallback: Boolean, reason: String?)
+        // Decision du juge ; `pending` vrai quand une confirmation de l'utilisateur est attendue.
+        fun onJudgeVerdict(
+            id: Long,
+            source: String,
+            text: String,
+            decision: String,
+            score: Int?,
+            category: String?,
+            rationale: String?,
+            pending: Boolean,
+            atMs: Long,
+        )
+        fun onJudgeResolved(id: Long, approved: Boolean)
+        // Ecriture d'un connecteur externe en attente d'accord.
+        fun onToolApproval(id: Long, server: String, tool: String, arguments: String, atMs: Long)
+        fun onToolApprovalResolved(id: Long, approved: Boolean)
+        // Interruption vocale detectee par le daemon (`rms` : niveau de la parole, si fourni).
+        fun onInterrupt(rms: Float?)
     }
 
     var eventListener: CallEventListener? = null
@@ -549,6 +567,30 @@ class NestorCallManager private constructor(private val context: Context) {
         }
     }
 
+    /** Repond a une confirmation demandee par le juge. Retourne faux si rien n'a pu etre envoye. */
+    fun resolveJudgement(id: Long, approve: Boolean): Boolean =
+        sendResolution("resolve_judgement", id, approve)
+
+    /** Repond a une demande d'accord pour une ecriture d'un connecteur externe. */
+    fun resolveToolApproval(id: Long, approve: Boolean): Boolean =
+        sendResolution("resolve_tool_approval", id, approve)
+
+    private fun sendResolution(type: String, id: Long, approve: Boolean): Boolean {
+        return try {
+            val json = JSONObject().apply {
+                put("type", type)
+                put("id", id)
+                put("approve", approve)
+            }
+            val sent = webSocket?.send(json.toString()) ?: false
+            Log.d(TAG, "$type id=$id approve=$approve sent=$sent")
+            sent
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending $type", e)
+            false
+        }
+    }
+
     // --- Localisation (reconnaissance de lieu cote nestord) ---
 
     private fun hasLocationPermission(): Boolean {
@@ -708,6 +750,36 @@ class NestorCallManager private constructor(private val context: Context) {
                     audioTrack?.pause()
                     audioTrack?.flush()
                     audioTrack?.play()
+                    val rms = obj.optDouble("rms", Double.NaN)
+                    eventListener?.onInterrupt(if (rms.isNaN()) null else rms.toFloat())
+                }
+                "judge_verdict" -> {
+                    eventListener?.onJudgeVerdict(
+                        id = obj.optLong("id"),
+                        source = obj.optString("source", "message"),
+                        text = obj.optString("text", ""),
+                        decision = obj.optString("decision", "confirm"),
+                        score = if (obj.has("score") && !obj.isNull("score")) obj.optInt("score") else null,
+                        category = optStringOrNull(obj, "category"),
+                        rationale = optStringOrNull(obj, "rationale"),
+                        pending = obj.optBoolean("pending", false),
+                        atMs = obj.optLong("at_ms", System.currentTimeMillis()),
+                    )
+                }
+                "judge_resolved" -> {
+                    eventListener?.onJudgeResolved(obj.optLong("id"), obj.optBoolean("approved", false))
+                }
+                "tool_approval" -> {
+                    eventListener?.onToolApproval(
+                        id = obj.optLong("id"),
+                        server = obj.optString("server", ""),
+                        tool = obj.optString("tool", ""),
+                        arguments = obj.optString("arguments", ""),
+                        atMs = obj.optLong("at_ms", System.currentTimeMillis()),
+                    )
+                }
+                "tool_approval_resolved" -> {
+                    eventListener?.onToolApprovalResolved(obj.optLong("id"), obj.optBoolean("approved", false))
                 }
                 "audio_chunk" -> {
                     // Base64 encoded audio
@@ -732,6 +804,9 @@ class NestorCallManager private constructor(private val context: Context) {
             Log.e(TAG, "Error parsing WebSocket message", e)
         }
     }
+
+    private fun optStringOrNull(obj: JSONObject, key: String): String? =
+        if (obj.has(key) && !obj.isNull(key)) obj.optString(key) else null
 
     private fun playAudioBytes(bytes: ByteArray) {
         if (!isPlaying.get() || audioTrack == null) return

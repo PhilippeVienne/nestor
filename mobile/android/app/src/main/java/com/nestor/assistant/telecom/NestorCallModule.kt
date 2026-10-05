@@ -144,6 +144,25 @@ class NestorCallModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
+    // Les identifiants arrivent de JS en `Double` (le pont n'a pas d'entier 64 bits).
+    @ReactMethod
+    fun resolveJudgement(id: Double, approve: Boolean, promise: Promise) {
+        try {
+            promise.resolve(callManager.resolveJudgement(id.toLong(), approve))
+        } catch (e: Exception) {
+            promise.reject("RESOLVE_JUDGEMENT_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun resolveToolApproval(id: Double, approve: Boolean, promise: Promise) {
+        try {
+            promise.resolve(callManager.resolveToolApproval(id.toLong(), approve))
+        } catch (e: Exception) {
+            promise.reject("RESOLVE_TOOL_APPROVAL_ERROR", e.message, e)
+        }
+    }
+
     @ReactMethod
     fun getCallState(promise: Promise) {
         try {
@@ -216,6 +235,65 @@ class NestorCallModule(private val reactContext: ReactApplicationContext) :
             if (reason != null) putString("reason", reason)
         }
         sendEvent("onBackendStatusChanged", params)
+    }
+
+    override fun onJudgeVerdict(
+        id: Long,
+        source: String,
+        text: String,
+        decision: String,
+        score: Int?,
+        category: String?,
+        rationale: String?,
+        pending: Boolean,
+        atMs: Long,
+    ) {
+        val params = Arguments.createMap().apply {
+            putDouble("id", id.toDouble())
+            putString("source", source)
+            putString("text", text)
+            putString("decision", decision)
+            if (score != null) putInt("score", score)
+            if (category != null) putString("category", category)
+            if (rationale != null) putString("rationale", rationale)
+            putBoolean("pending", pending)
+            putDouble("atMs", atMs.toDouble())
+        }
+        sendEvent("onJudgeVerdict", params)
+    }
+
+    override fun onJudgeResolved(id: Long, approved: Boolean) {
+        val params = Arguments.createMap().apply {
+            putDouble("id", id.toDouble())
+            putBoolean("approved", approved)
+        }
+        sendEvent("onJudgeResolved", params)
+    }
+
+    override fun onToolApproval(id: Long, server: String, tool: String, arguments: String, atMs: Long) {
+        val params = Arguments.createMap().apply {
+            putDouble("id", id.toDouble())
+            putString("server", server)
+            putString("tool", tool)
+            putString("arguments", arguments)
+            putDouble("atMs", atMs.toDouble())
+        }
+        sendEvent("onToolApproval", params)
+    }
+
+    override fun onToolApprovalResolved(id: Long, approved: Boolean) {
+        val params = Arguments.createMap().apply {
+            putDouble("id", id.toDouble())
+            putBoolean("approved", approved)
+        }
+        sendEvent("onToolApprovalResolved", params)
+    }
+
+    override fun onInterrupt(rms: Float?) {
+        val params = Arguments.createMap().apply {
+            if (rms != null) putDouble("rms", rms.toDouble())
+        }
+        sendEvent("onInterrupt", params)
     }
 
     private fun sendEvent(eventName: String, params: WritableMap?) {

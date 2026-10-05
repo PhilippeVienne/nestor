@@ -7,6 +7,8 @@ import {
   TranscriptEvent,
   ToolCallEvent,
   BackendStatusEvent,
+  JudgeVerdictEvent,
+  ToolApprovalEvent,
 } from '../native/NestorCall';
 
 export interface ChatMessage {
@@ -15,6 +17,11 @@ export interface ChatMessage {
   text: string;
   time: string;
 }
+
+/** Demande en attente d'une reponse de l'utilisateur (juge ou connecteur externe). */
+export type PendingRequest =
+  | ({ kind: 'judge' } & JudgeVerdictEvent)
+  | ({ kind: 'tool' } & ToolApprovalEvent);
 
 export function useNestorCall() {
   const [callState, setCallState] = useState<CallState>('IDLE');
@@ -31,6 +38,10 @@ export function useNestorCall() {
     active_backend: 'claude',
     is_fallback: false,
   });
+
+  const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([]);
+  // Incremente a chaque interruption vocale signalee par le daemon.
+  const [interruptCount, setInterruptCount] = useState<number>(0);
 
   const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -128,7 +139,41 @@ export function useNestorCall() {
       setBackendStatus(e);
     });
 
+    // Les identifiants du juge et des connecteurs sont deux compteurs distincts :
+    // une demande se reconnait a son couple (kind, id).
+    const dropRequest = (kind: PendingRequest['kind'], id: number) =>
+      setPendingRequests((prev) => prev.filter((r) => !(r.kind === kind && r.id === id)));
+
+    const subJudgeVerdict = NestorCall.onJudgeVerdict((e) => {
+      // Le daemon rejoue ses dernieres decisions a la connexion : seules celles
+      // encore en attente demandent une reponse.
+      if (!e.pending) {
+        dropRequest('judge', e.id);
+        return;
+      }
+      setPendingRequests((prev) =>
+        prev.some((r) => r.kind === 'judge' && r.id === e.id) ? prev : [...prev, { kind: 'judge', ...e }]
+      );
+    });
+
+    const subJudgeResolved = NestorCall.onJudgeResolved((e) => dropRequest('judge', e.id));
+
+    const subToolApproval = NestorCall.onToolApproval((e) => {
+      setPendingRequests((prev) =>
+        prev.some((r) => r.kind === 'tool' && r.id === e.id) ? prev : [...prev, { kind: 'tool', ...e }]
+      );
+    });
+
+    const subToolApprovalResolved = NestorCall.onToolApprovalResolved((e) => dropRequest('tool', e.id));
+
+    const subInterrupt = NestorCall.onInterrupt(() => setInterruptCount((n) => n + 1));
+
     return () => {
+      subJudgeVerdict?.remove();
+      subJudgeResolved?.remove();
+      subToolApproval?.remove();
+      subToolApprovalResolved?.remove();
+      subInterrupt?.remove();
       subCallState?.remove();
       subNestorState?.remove();
       subAudioRoute?.remove();
@@ -157,6 +202,8 @@ export function useNestorCall() {
     setCallStatusDetails('Connexion à Nestor...');
     setMessages([]);
     setActiveTools([]);
+    // Un daemon redemarre repart de l'identifiant 1 : l'instantane de connexion refait la liste.
+    setPendingRequests([]);
     await NestorCall.startCall(serverUrl, token);
   }, []);
 
@@ -187,6 +234,14 @@ export function useNestorCall() {
     await NestorCall.sendTextMessage(text);
   }, []);
 
+  // La demande reste affichee jusqu'a l'evenement `*_resolved` du daemon : c'est
+  // lui qui fait foi (reponse a la voix, depuis un autre client, ou delai depasse).
+  const resolveRequest = useCallback(async (request: PendingRequest, approve: boolean) => {
+    return request.kind === 'judge'
+      ? NestorCall.resolveJudgement(request.id, approve)
+      : NestorCall.resolveToolApproval(request.id, approve);
+  }, []);
+
   const setBackend = useCallback(async (backend: string) => {
     await NestorCall.setBackend(backend);
   }, []);
@@ -202,6 +257,9 @@ export function useNestorCall() {
     messages,
     activeTools,
     backendStatus,
+    pendingRequests,
+    resolveRequest,
+    interruptCount,
     setBackend,
     callDuration: formatDuration(callDurationSeconds),
     startCall,
