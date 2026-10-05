@@ -57,6 +57,16 @@ Les secrets passent par des variables d'environnement, pas par le fichier.
 
 ## Limites connues
 
+- **Les connecteurs claude.ai de la session ne passent pas par la passerelle.**
+  nestord lance l'assistant sans `--strict-mcp-config` : les serveurs MCP et
+  connecteurs déjà attachés à votre compte (Gmail, Drive…) lui restent
+  accessibles directement, écritures comprises, avec pour seul garde-fou le juge
+  de conscience. Or celui-ci reconnaît mal les actions personnelles formulées
+  librement (voir `judge.rs`, test `tenue_a_l_ecart`). Pour que la règle
+  « lecture libre, accord pour écrire » soit réellement garantie, il faut lancer
+  l'assistant avec `--strict-mcp-config` et faire passer ces services par la
+  passerelle.
+
 - Exposer ou masquer un outil ne change la liste vue par l'assistant qu'à sa
   prochaine session ; le blocage, lui, est immédiat.
 - La règle « lecture libre » repose sur l'annonce du serveur : un serveur qui
