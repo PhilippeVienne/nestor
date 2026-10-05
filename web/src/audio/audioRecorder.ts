@@ -65,7 +65,7 @@ export class AudioRecorder {
       // de faire tourner continuellement le reseau et le CPU en arriere-plan.
       const ENERGY_THRESHOLD = 0.012;
       const PREROLL_MAX = 3; // ~255 ms de pre-roll a 16 kHz
-      const HANGOVER_MAX = 10; // ~850 ms : doit depasser SILENCE_HANGOVER_MS (700 ms) cote nestord, sinon l'enonce n'est jamais cloture
+      const HANGOVER_MAX = 19; // ~1600 ms : doit depasser le silence maximal cote nestord (turn.max_silence_ms 1400 ms), sinon l'enonce n'est jamais cloture
       const prerollBuffers: ArrayBuffer[] = [];
       let inVoice = false;
       let hangoverRemaining = 0;

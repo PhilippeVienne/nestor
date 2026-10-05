@@ -12,6 +12,7 @@
 mod stt;
 mod tts;
 mod vad;
+pub mod turn;
 pub mod wake;
 
 use std::path::PathBuf;
@@ -36,6 +37,8 @@ const VAD_CHUNK_SAMPLES: usize = 512;
 const VAD_THRESHOLD: f32 = 0.5;
 /// Duree de silence apres laquelle on considere l'enonce utilisateur termine.
 const SILENCE_HANGOVER_MS: u64 = 700;
+/// Pas entre deux consultations du modele de fin de tour pendant un silence.
+const TURN_CHECK_STEP_MS: u64 = 160;
 /// Duree minimale de parole avant de declencher une transcription (evite le bruit court).
 const MIN_SPEECH_MS: u64 = 250;
 /// Marge ajoutee a la fenetre de suppression d'echo. Le serveur ne connait pas
@@ -200,6 +203,24 @@ fn listen_loop(
         config.wake_word.words.clone(),
     );
 
+    // Fin de tour par modele (Smart Turn) ; repli sur le silence fixe s'il est indisponible.
+    let mut turn = if config.turn.enabled {
+        let path = models_dir().join("smart-turn-v3.2-cpu.onnx");
+        match turn::SmartTurn::load(&path) {
+            Ok(t) => {
+                tracing::info!(path = %path.display(), "detection de fin de tour Smart Turn activee");
+                Some(t)
+            }
+            Err(err) => {
+                tracing::warn!(?err, "Smart Turn indisponible : silence fixe de {SILENCE_HANGOVER_MS} ms");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let mut last_turn_check_ms: u64 = 0;
+
     let initial_status = if config.wake_word.enabled {
         DaemonStatus::Idle
     } else {
@@ -286,6 +307,7 @@ fn listen_loop(
                 }
                 speech_run_ms += window_ms;
                 silence_run_ms = 0;
+                last_turn_check_ms = 0;
                 in_speech = true;
                 speech_buf.extend_from_slice(&window);
             } else if !in_speech {
@@ -298,7 +320,38 @@ fn listen_loop(
                 silence_run_ms += window_ms;
                 speech_buf.extend_from_slice(&window);
 
-                if silence_run_ms >= SILENCE_HANGOVER_MS {
+                let end_of_turn = match turn.as_mut() {
+                    // Silence suffisant : on consulte le modele toutes les TURN_CHECK_STEP_MS,
+                    // avec une fin forcee au bout de max_silence_ms.
+                    Some(model) => {
+                        if silence_run_ms >= config.turn.max_silence_ms {
+                            tracing::info!(silence_run_ms, "fin de tour forcee (silence maximal)");
+                            true
+                        } else if silence_run_ms >= config.turn.min_silence_ms
+                            && silence_run_ms >= last_turn_check_ms + TURN_CHECK_STEP_MS
+                        {
+                            last_turn_check_ms = silence_run_ms;
+                            let started = std::time::Instant::now();
+                            match model.predict(&speech_buf) {
+                                Ok(p) => {
+                                    tracing::debug!(p, silence_run_ms, took_ms = started.elapsed().as_millis() as u64, "Smart Turn");
+                                    p >= config.turn.threshold
+                                }
+                                // Modele en erreur : on retombe sur le silence fixe.
+                                Err(err) => {
+                                    tracing::warn!(?err, "inference Smart Turn en erreur");
+                                    silence_run_ms >= SILENCE_HANGOVER_MS
+                                }
+                            }
+                        } else {
+                            false
+                        }
+                    }
+                    None => silence_run_ms >= SILENCE_HANGOVER_MS,
+                };
+
+                if end_of_turn {
+                    last_turn_check_ms = 0;
                     in_speech = false;
                     let utterance = std::mem::take(&mut speech_buf);
                     let had_speech_ms = speech_run_ms;

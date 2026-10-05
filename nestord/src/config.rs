@@ -31,6 +31,7 @@ pub struct Config {
     pub quiet_hours: QuietHours,
     pub wake: WakeConfig,
     pub wake_word: WakeWordConfig,
+    pub turn: TurnConfig,
     pub judge: JudgeConfig,
     /// Jeton partage exige pour se connecter a `/ws` (query `?token=...`).
     /// `NESTORD_AUTH_TOKEN` a priorite. Absent (defaut) : pas de verification,
@@ -48,6 +49,7 @@ impl Default for Config {
             quiet_hours: QuietHours::default(),
             wake: WakeConfig::default(),
             wake_word: WakeWordConfig::default(),
+            turn: TurnConfig::default(),
             judge: JudgeConfig::default(),
             auth_token: None,
         }
@@ -165,6 +167,29 @@ pub fn default_words() -> Vec<String> {
     .collect()
 }
 
+/// Detection de fin de tour (Smart Turn) : decide si l'utilisateur a fini sa
+/// phrase au lieu d'attendre un silence fixe. Prototype, desactive par defaut
+/// (`NESTORD_TURN_DETECTION=1` ou `[turn] enabled = true`). Sans le modele
+/// `smart-turn-v3.2-cpu.onnx`, repli sur le silence fixe. Cf. docs/smart-turn.md.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct TurnConfig {
+    pub enabled: bool,
+    /// Probabilite a partir de laquelle le tour est considere termine.
+    pub threshold: f32,
+    /// Silence minimal avant de consulter le modele.
+    pub min_silence_ms: u64,
+    /// Silence maximal : au-dela, fin de tour forcee meme si le modele hesite.
+    /// Doit rester inferieur au maintien du VAD client (~1600 ms).
+    pub max_silence_ms: u64,
+}
+
+impl Default for TurnConfig {
+    fn default() -> Self {
+        Self { enabled: false, threshold: 0.5, min_silence_ms: 300, max_silence_ms: 1400 }
+    }
+}
+
 /// Configuration du mot-cle d'activation ("Hey Nestor").
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
@@ -249,6 +274,10 @@ impl Config {
                 "aucun auth_token configure : /ws accepte toute connexion. Tolerable tant que \
 nestord n'ecoute que sur 127.0.0.1, a definir avant toute exposition reseau plus large (`nestord onboard`)."
             );
+        }
+
+        if let Ok(val) = std::env::var("NESTORD_TURN_DETECTION") {
+            config.turn.enabled = val != "0" && val.to_ascii_lowercase() != "false";
         }
 
         if let Ok(val) = std::env::var("NESTORD_WAKE_WORD_ENABLED") {

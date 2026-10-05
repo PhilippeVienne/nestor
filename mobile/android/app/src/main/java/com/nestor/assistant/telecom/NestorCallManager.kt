@@ -399,7 +399,7 @@ class NestorCallManager private constructor(private val context: Context) {
         // ce qui permet a la puce radio (Wi-Fi / 4G / 5G) d'entrer en mode veille (DRX/low-power).
         val ENERGY_VAD_THRESHOLD = 0.012f
         val PREROLL_CHUNKS = 6 // 6 x 50ms = 300ms de pre-roll pour capturer l'attaque ("H" de "Hey")
-        val HANGOVER_CHUNKS = 16 // 16 x 50ms = 800ms : doit depasser SILENCE_HANGOVER_MS (700ms) cote nestord, sinon l'enonce n'est jamais cloture
+        val HANGOVER_CHUNKS = 32 // 32 x 50ms = 1600ms : doit depasser le silence maximal cote nestord (turn.max_silence_ms 1400ms), sinon l'enonce n'est jamais cloture
         val prerollQueue = java.util.ArrayDeque<ByteArray>(PREROLL_CHUNKS)
         var inVoice = false
         var hangoverRemaining = 0
