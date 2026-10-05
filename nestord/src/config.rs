@@ -86,9 +86,9 @@ impl Default for JudgeConfig {
         Self {
             enabled: true,
             ollama_host: "http://127.0.0.1:11434".to_string(),
-            // Choisi sur une batterie de phrases saines/dangereuses (judge.rs, test ignore) :
-            // llama3.2:1b bloquait des phrases ordinaires (hallucinait un "rm -rf"),
-            // llama3.2:3b laissait passer l'envoi d'une cle SSH.
+            // Choisi sur la batterie de `judge.rs` (53 phrases) : aucune demande ordinaire
+            // bloquee, la ou llama3.2:1b en bloquait 6 sur 28. Les dangers evidents sont
+            // tranches par des regles deterministes, pas par ce modele.
             model: "qwen2.5:1.5b".to_string(),
             confirm_threshold: 60,
             reject_threshold: 90,

@@ -305,8 +305,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   ))}
                 </select>
                 <span className="text-[13px] text-slate-400">
-                  Batterie de 13 phrases : qwen2.5:1.5b sans erreur, llama3.2:1b bloque une phrase saine, llama3.2:3b
-                  laisse passer un danger.
+                  Les dangers évidents (rm -rf, sudoers, .bashrc, envoi d'un secret…) sont tranchés par des règles
+                  fixes ; le modèle juge le reste. Sur 53 phrases de test, qwen2.5:1.5b ne bloque aucune demande
+                  ordinaire.
                 </span>
               </div>
               <div className="flex flex-wrap gap-3">
