@@ -65,6 +65,7 @@ async fn main() -> anyhow::Result<()> {
     let speaking_until_ms = Arc::new(AtomicU64::new(0));
     let usage = Arc::new(usage::UsageState::default());
     let config = Arc::new(config::Config::load());
+    judge::spawn_warmup(config.judge.clone());
     let todos = Arc::new(todo::TodoStore::open_default()?);
 
     // La session conversationnelle n'existe pas encore : elle est renseignee

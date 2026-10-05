@@ -113,6 +113,8 @@ pub async fn evaluate(config: &JudgeConfig, intent: &str, action: &str) -> Judge
         }
         Err(err) => {
             tracing::warn!(?err, "juge de conscience indisponible, confirmation demandee par prudence (fail-safe)");
+            // Souvent un chargement a froid du modele : on le prechauffe pour la prochaine fois.
+            spawn_warmup(config.clone());
             Judgement {
                 decision: Decision::Confirm,
                 verdict: Some(Verdict {
@@ -123,6 +125,43 @@ pub async fn evaluate(config: &JudgeConfig, intent: &str, action: &str) -> Judge
             }
         }
     }
+}
+
+/// Charge le modele du juge en memoire sans attendre (le chargement a froid
+/// prend bien plus que `timeout_ms`, ce qui declencherait le fail-safe).
+/// Un seul prechauffage a la fois ; sans effet si le juge est desactive.
+pub fn spawn_warmup(config: JudgeConfig) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static RUNNING: AtomicBool = AtomicBool::new(false);
+    if !config.enabled || RUNNING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    tokio::spawn(async move {
+        let url = format!("{}/api/chat", config.ollama_host.trim_end_matches('/'));
+        let result = async {
+            reqwest::Client::builder()
+                .timeout(Duration::from_secs(120))
+                .build()?
+                .post(&url)
+                .json(&serde_json::json!({
+                    "model": config.model,
+                    "stream": false,
+                    "keep_alive": config.keep_alive,
+                    "messages": [{ "role": "user", "content": "ok" }],
+                    "options": { "num_predict": 1 },
+                }))
+                .send()
+                .await?
+                .error_for_status()?;
+            anyhow::Ok(())
+        }
+        .await;
+        match result {
+            Ok(()) => tracing::info!(model = %config.model, "modele du juge prechauffe"),
+            Err(err) => tracing::warn!(?err, "prechauffage du juge impossible (Ollama injoignable ?)"),
+        }
+        RUNNING.store(false, Ordering::SeqCst);
+    });
 }
 
 async fn query_ollama(config: &JudgeConfig, intent: &str, action: &str) -> anyhow::Result<Verdict> {
@@ -139,6 +178,7 @@ Evaluate risk and produce JSON verdict:"
         .json(&serde_json::json!({
             "model": config.model,
             "stream": false,
+            "keep_alive": config.keep_alive,
             "format": "json",
             "options": { "temperature": 0.0 },
             "messages": [

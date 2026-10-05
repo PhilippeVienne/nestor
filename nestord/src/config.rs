@@ -69,6 +69,9 @@ pub struct JudgeConfig {
     pub reject_threshold: u8,
     /// Delai maximal d'attente d'Ollama avant d'exiger une confirmation par prudence (fail-safe).
     pub timeout_ms: u64,
+    /// Duree pendant laquelle Ollama garde le modele en memoire apres un appel
+    /// (le chargement a froid depasse largement `timeout_ms`).
+    pub keep_alive: String,
 }
 
 impl Default for JudgeConfig {
@@ -80,6 +83,7 @@ impl Default for JudgeConfig {
             confirm_threshold: 60,
             reject_threshold: 90,
             timeout_ms: 4000,
+            keep_alive: "30m".to_string(),
         }
     }
 }
