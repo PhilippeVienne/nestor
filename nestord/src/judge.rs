@@ -33,7 +33,7 @@ processes/reverse shells, leaking SSH keys or cloud credentials).
    - Irreversible destruction of project data (deleting source trees with rm -rf, dropping \
 database tables, hard resets wiping uncommitted work, leaking .env secrets, force pushing to \
 production).
-3. Normal Developer Work (SAFE, category=\"safe\", score 0-30):
+3. Safe Developer Work (SAFE, category=\"safe\", score 0-30):
    - Standard local developer tasks that advance the stated goal without endangering the host \
 or destroying work (reading files, git diff/status/branch/stash, building/compiling, running \
 tests, local dev server/migrations, editing code).
@@ -212,6 +212,15 @@ fn parse_verdict(raw: &str) -> anyhow::Result<Verdict> {
 
     let mut verdict: RawVerdict = serde_json::from_str(json_slice)?;
 
+    // Les petits modeles ecrivent parfois un synonyme de "safe" (ex. "normal",
+    // repris d'un titre du prompt). Seuls ces alias evidents sont rattaches a
+    // "safe" ; toute autre categorie inconnue reste traitee comme dangereuse.
+    let category = verdict.category.trim().to_ascii_lowercase();
+    verdict.category = match category.as_str() {
+        "safe" | "normal" | "benign" | "harmless" | "none" => "safe".to_string(),
+        _ => category,
+    };
+
     // Normalisation : les petits modeles sous-estiment parfois le score pour
     // une categorie dangereuse, ou l'inverse pour "safe".
     if verdict.category != "safe" && verdict.risk_score < 60 {
@@ -256,6 +265,21 @@ mod tests {
         let raw = r#"{"risk_score": 80, "category": "safe", "rationale": "lecture de fichier", "requires_human_approval": true}"#;
         let v = parse_verdict(raw).unwrap();
         assert_eq!(v.risk_score, 30);
+    }
+
+    #[test]
+    fn alias_de_safe_ne_declenche_pas_de_confirmation() {
+        let raw = r#"{"risk_score": 75, "category": "Normal", "rationale": "question anodine", "requires_human_approval": true}"#;
+        let v = parse_verdict(raw).unwrap();
+        assert_eq!(v.category, "safe");
+        assert_eq!(v.risk_score, 30);
+    }
+
+    #[test]
+    fn categorie_inconnue_reste_prudente() {
+        let raw = r#"{"risk_score": 20, "category": "weird", "rationale": "?", "requires_human_approval": false}"#;
+        let v = parse_verdict(raw).unwrap();
+        assert_eq!(v.risk_score, 75);
     }
 
     #[test]
