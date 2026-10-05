@@ -54,10 +54,12 @@ export const ConsciencePanel: React.FC<ConsciencePanelProps> = ({ judgements, mo
   const ordered = [...judgements].sort((a, b) => Number(b.pending) - Number(a.pending));
   return (
     <div className="flex-1 overflow-y-auto p-3 space-y-2.5 text-sm">
-      <div className="flex items-baseline justify-between gap-3 text-[11px] font-mono text-slate-400">
-        <span className="uppercase tracking-wider">Juge local</span>
-        <span>{model ?? '—'}</span>
-      </div>
+      {model !== undefined && (
+        <div className="flex items-baseline justify-between gap-3 text-[11px] font-mono text-slate-400">
+          <span className="uppercase tracking-wider">Juge local</span>
+          <span>{model}</span>
+        </div>
+      )}
       {ordered.length === 0 ? (
         <p className="text-xs text-slate-500 py-6 text-center">
           Aucune décision pour l'instant. Chaque demande et chaque mission passe ici avant d'être exécutée.

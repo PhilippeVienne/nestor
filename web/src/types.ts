@@ -18,6 +18,56 @@ export interface NestorSettings {
   judge_reject_threshold: number;
 }
 
+/** Contexte tenu par nestord (panneau « Situation »). */
+export interface ContextInfo {
+  place?: string;
+  quiet_start: string;
+  quiet_end: string;
+  quiet_active: boolean;
+  auth_required: boolean;
+}
+
+/** Tache ou rappel (cf. nestord/src/todo.rs). */
+export interface TodoItem {
+  id: number;
+  title: string;
+  notes?: string | null;
+  status: string;
+  /** `daily`, `weekly:<jour>` ou `monthly:<1-31>`. */
+  recurrence?: string | null;
+  /** Echeance en secondes (epoch), pour une tache ponctuelle. */
+  due_at?: number | null;
+  created_at: number;
+}
+
+export interface ClientInfo {
+  id: number;
+  kind: 'web' | 'mobile' | 'autre' | string;
+  connected_at_ms: number;
+}
+
+export interface GpuInfo {
+  name: string;
+  memory_used_mb: number;
+  memory_total_mb: number;
+}
+
+export interface TelemetryInfo {
+  stt_model?: string;
+  tts_voice?: string;
+  judge_model: string;
+  gpu?: GpuInfo;
+  stt_ms?: number;
+  first_word_ms?: number;
+  tts_ms?: number;
+}
+
+export interface ConnectorInfo {
+  name: string;
+  kind: 'interne' | 'externe' | string;
+  tools: string[];
+}
+
 export type JudgeDecision = 'allow' | 'confirm' | 'deny';
 
 /** Decision du juge de conscience (panneau « Conscience »). */
@@ -83,6 +133,20 @@ export type ServerEvent =
   | {
       type: 'settings';
       settings: NestorSettings;
+    }
+  | ({ type: 'context' } & ContextInfo)
+  | {
+      type: 'todos';
+      items: TodoItem[];
+    }
+  | {
+      type: 'clients';
+      items: ClientInfo[];
+    }
+  | ({ type: 'telemetry' } & TelemetryInfo)
+  | {
+      type: 'connectors';
+      items: ConnectorInfo[];
     }
   | {
       type: 'judge_verdict';
@@ -181,6 +245,20 @@ export type ClientEvent =
       type: 'stop_mission';
       id: number;
       reason?: string;
+    }
+  | {
+      type: 'todo_add';
+      title: string;
+      due_at?: string;
+      recurrence?: string;
+    }
+  | {
+      type: 'todo_complete';
+      id: number;
+    }
+  | {
+      type: 'todo_delete';
+      id: number;
     }
   | {
       type: 'resolve_judgement';

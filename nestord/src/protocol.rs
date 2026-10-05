@@ -44,6 +44,46 @@ pub enum ServerEvent {
         id: u64,
         approved: bool,
     },
+    /// Contexte tenu par nestord (panneau « Situation »).
+    Context {
+        /// Lieu reconnu a partir de la position du client, s'il y en a un.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        place: Option<String>,
+        quiet_start: String,
+        quiet_end: String,
+        quiet_active: bool,
+        /// Un jeton est exige pour se connecter a `/ws`.
+        auth_required: bool,
+    },
+    /// Taches et rappels en attente, rediffuses a chaque changement.
+    Todos {
+        items: Vec<crate::todo::Todo>,
+    },
+    /// Clients connectes au daemon (web, mobile...).
+    Clients {
+        items: Vec<crate::dashboard::ClientInfo>,
+    },
+    /// Modeles charges, carte graphique et dernieres latences mesurees.
+    Telemetry {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        stt_model: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tts_voice: Option<String>,
+        judge_model: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        gpu: Option<crate::dashboard::GpuInfo>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        stt_ms: Option<u64>,
+        /// Delai entre le debut de reflexion et le premier mot de la reponse.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        first_word_ms: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tts_ms: Option<u64>,
+    },
+    /// Serveurs MCP exposes a l'assistant (panneau « Connecteurs »).
+    Connectors {
+        items: Vec<crate::dashboard::ConnectorInfo>,
+    },
     /// Reglages courants (ecran « Reglages ») : a la connexion et a chaque changement.
     Settings {
         settings: crate::settings::Settings,
@@ -179,6 +219,22 @@ pub enum ClientEvent {
         /// Motif facultatif, repris dans le compte rendu d'annulation.
         #[serde(default)]
         reason: Option<String>,
+    },
+    /// Taches gerees depuis l'UI (memes operations que les outils MCP `todo_*`).
+    TodoAdd {
+        title: String,
+        /// Echeance `AAAA-MM-JJTHH:MM` (tache ponctuelle).
+        #[serde(default)]
+        due_at: Option<String>,
+        /// `daily`, `weekly:<jour>` ou `monthly:<1-31>`.
+        #[serde(default)]
+        recurrence: Option<String>,
+    },
+    TodoComplete {
+        id: i64,
+    },
+    TodoDelete {
+        id: i64,
     },
     /// Reponse de l'utilisateur, depuis l'UI, a une confirmation demandee par le juge.
     ResolveJudgement {

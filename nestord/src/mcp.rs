@@ -50,6 +50,14 @@ pub async fn mcp_handler(State(state): State<Arc<AppState>>, Json(request): Json
     }
 }
 
+/// Noms des outils exposes par le serveur MCP interne (panneau « Connecteurs »).
+pub fn tool_names() -> Vec<String> {
+    tool_definitions()
+        .as_array()
+        .map(|tools| tools.iter().filter_map(|t| t.get("name").and_then(Value::as_str).map(str::to_string)).collect())
+        .unwrap_or_default()
+}
+
 fn tool_definitions() -> Value {
     json!([
         {
@@ -314,6 +322,7 @@ Taches en attente : {pending} (dont {overdue} en retard).",
                 .add(title, notes, due_at, recurrence)
                 .map_err(|err| format!("echec d'enregistrement : {err}"))?;
 
+            let _ = state.events_tx.send(crate::dashboard::todos_event(&state.todos));
             Ok(text_result(format!("Tache #{id} retenue : {title}.")))
         }
         "todo_list" => {
@@ -341,6 +350,7 @@ Taches en attente : {pending} (dont {overdue} en retard).",
         "todo_complete" => {
             let id = arguments.get("id").and_then(Value::as_i64).ok_or_else(|| "argument 'id' requis".to_string())?;
             let found = state.todos.complete(id).map_err(|err| format!("echec de mise a jour : {err}"))?;
+            let _ = state.events_tx.send(crate::dashboard::todos_event(&state.todos));
             if found {
                 Ok(text_result(format!("Tache #{id} marquee faite.")))
             } else {
@@ -350,6 +360,7 @@ Taches en attente : {pending} (dont {overdue} en retard).",
         "todo_delete" => {
             let id = arguments.get("id").and_then(Value::as_i64).ok_or_else(|| "argument 'id' requis".to_string())?;
             let found = state.todos.delete(id).map_err(|err| format!("echec de suppression : {err}"))?;
+            let _ = state.events_tx.send(crate::dashboard::todos_event(&state.todos));
             if found {
                 Ok(text_result(format!("Tache #{id} supprimee.")))
             } else {

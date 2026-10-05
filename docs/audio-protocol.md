@@ -194,3 +194,26 @@ empechait toute interruption vocale depuis le navigateur.
   emis aussi quand la confirmation est donnee ou abandonnee a la voix.
 - Le journal d'activite de l'UI est construit cote navigateur a partir des
   evenements recus : il repart de zero au rechargement de la page.
+
+## Tableau de bord
+
+Evenements du serveur (envoyes a la connexion, puis a chaque changement) :
+
+- `context` : `place` (lieu reconnu), `quiet_start`, `quiet_end`, `quiet_active`,
+  `auth_required` (un jeton est exige sur `/ws`). Rediffuse toutes les 30 s et a
+  chaque changement de lieu.
+- `todos` : `items`, les taches en attente (`id`, `title`, `recurrence`, `due_at`
+  en secondes). Rediffuse apres chaque ajout, completion ou suppression, que ce
+  soit par l'UI ou par les outils MCP `todo_*`.
+- `clients` : `items` (`id`, `kind` = `web`/`mobile`/`autre`, `connected_at_ms`).
+  Le type vient du parametre `?client=` de l'URL, sinon de l'en-tete User-Agent.
+- `telemetry` (toutes les 5 s) : `stt_model`, `tts_voice`, `judge_model`, `gpu`
+  (`name`, `memory_used_mb`, `memory_total_mb`, via `nvidia-smi`), et les
+  dernieres latences mesurees : `stt_ms` (transcription), `first_word_ms` (du
+  debut de reflexion au premier mot de la reponse) et `tts_ms` (synthese d'une
+  phrase). Un champ absent signifie « pas encore mesure ».
+- `connectors` : `items` (`name`, `kind`, `tools`). Aujourd'hui le seul serveur
+  MCP est celui de nestord.
+
+Commandes du client : `todo_add` (`title`, `due_at` `AAAA-MM-JJTHH:MM` ou
+`recurrence`), `todo_complete` (`id`), `todo_delete` (`id`).

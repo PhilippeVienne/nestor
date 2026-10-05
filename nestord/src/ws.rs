@@ -62,6 +62,11 @@ fn connection_snapshot(state: &AppState) -> Vec<ServerEvent> {
     events.push(state.brain.snapshot());
     events.push(ServerEvent::Settings { settings: crate::settings::get() });
     events.extend(state.brain.judge_snapshot());
+    events.push(crate::dashboard::context_event(&state.config, &state.current_place));
+    events.push(crate::dashboard::todos_event(&state.todos));
+    events.push(crate::dashboard::clients_event());
+    events.push(crate::dashboard::telemetry_event());
+    events.push(crate::dashboard::connectors_event());
 
     let is_wake_active = now_ms() < state.wake_active_until_ms.load(Ordering::SeqCst);
     events.push(ServerEvent::WakeState { active: is_wake_active });
@@ -94,11 +99,14 @@ fn connection_snapshot(state: &AppState) -> Vec<ServerEvent> {
 #[derive(serde::Deserialize)]
 pub struct WsAuthQuery {
     token: Option<String>,
+    /// Type de client annonce (`web`, `mobile`), pour le panneau « Appareils ».
+    client: Option<String>,
 }
 
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
     Query(auth): Query<WsAuthQuery>,
+    headers: axum::http::HeaderMap,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     if let Some(expected) = &state.config.auth_token {
@@ -108,12 +116,31 @@ pub async fn ws_handler(
         }
     }
 
-    ws.on_upgrade(move |socket| handle_socket(socket, state)).into_response()
+    let user_agent = headers.get(axum::http::header::USER_AGENT).and_then(|v| v.to_str().ok());
+    let kind = crate::dashboard::classify_client(auth.client.as_deref(), user_agent);
+    ws.on_upgrade(move |socket| handle_socket(socket, state, kind)).into_response()
 }
 
-async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
+/// Retire le client de la liste des appareils a la fin de la connexion, quelle qu'en soit la cause.
+struct ClientGuard {
+    id: u64,
+    events_tx: tokio::sync::broadcast::Sender<ServerEvent>,
+}
+
+impl Drop for ClientGuard {
+    fn drop(&mut self) {
+        crate::dashboard::unregister_client(self.id);
+        let _ = self.events_tx.send(crate::dashboard::clients_event());
+    }
+}
+
+async fn handle_socket(socket: WebSocket, state: Arc<AppState>, kind: &'static str) {
     let (mut sender, mut receiver) = socket.split();
     let mut events_rx = state.events_tx.subscribe();
+
+    // Inscrit avant l'instantane, pour que ce client se voie lui-meme dans la liste.
+    let _client = ClientGuard { id: crate::dashboard::register_client(kind), events_tx: state.events_tx.clone() };
+    let _ = state.events_tx.send(crate::dashboard::clients_event());
 
     // Instantane de connexion : les evenements sont diffuses en direct et ne
     // sont pas rejoues, donc un client qui arrive (ou se reconnecte) en cours
@@ -162,6 +189,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let events_tx = state.events_tx.clone();
     let barge_in_gen = state.barge_in_gen.clone();
     let turn_started_gen = state.turn_started_gen.clone();
+    let todos_store = state.todos.clone();
     let mic_tx = state.mic_tx.clone();
     let speaking_until_ms = state.speaking_until_ms.clone();
     let wake_active_until_ms = state.wake_active_until_ms.clone();
@@ -194,6 +222,29 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         wake_active_until_ms.store(now_ms() + timeout_ms, Ordering::SeqCst);
                         let _ = events_tx.send(ServerEvent::WakeState { active: true });
                         let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Listening });
+                    }
+                    Ok(ClientEvent::TodoAdd { title, due_at, recurrence }) => {
+                        let title = title.trim();
+                        let recurrence = recurrence.as_deref().and_then(crate::todo::Recurrence::parse);
+                        let due_at = due_at.as_deref().and_then(crate::dashboard::parse_due_at);
+                        if title.is_empty() {
+                            tracing::debug!("tache sans intitule ignoree");
+                        } else if let Err(err) = todos_store.add(title, None, due_at, recurrence) {
+                            tracing::error!(?err, "echec d'ajout de tache depuis l'UI");
+                        }
+                        let _ = events_tx.send(crate::dashboard::todos_event(&todos_store));
+                    }
+                    Ok(ClientEvent::TodoComplete { id }) => {
+                        if let Err(err) = todos_store.complete(id) {
+                            tracing::error!(?err, id, "echec de mise a jour de tache depuis l'UI");
+                        }
+                        let _ = events_tx.send(crate::dashboard::todos_event(&todos_store));
+                    }
+                    Ok(ClientEvent::TodoDelete { id }) => {
+                        if let Err(err) = todos_store.delete(id) {
+                            tracing::error!(?err, id, "echec de suppression de tache depuis l'UI");
+                        }
+                        let _ = events_tx.send(crate::dashboard::todos_event(&todos_store));
                     }
                     Ok(ClientEvent::ResolveJudgement { id, approve }) => {
                         tracing::info!(id, approve, "confirmation du juge tranchee depuis l'UI");
@@ -247,6 +298,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         if *current != place {
                             tracing::info!(?place, "changement de lieu detecte");
                             *current = place;
+                            drop(current);
+                            let _ = events_tx.send(crate::dashboard::context_event(&config, &current_place));
                         }
                     }
                     Err(err) => {

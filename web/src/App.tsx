@@ -7,7 +7,10 @@ import { ControlBar } from './components/ControlBar';
 import { Header } from './components/Header';
 import { VoiceHud } from './components/VoiceHud';
 import { SettingsPanel } from './components/SettingsPanel';
-import { JudgeActions } from './components/ConsciencePanel';
+import { JudgeActions, ConsciencePanel } from './components/ConsciencePanel';
+import { ActivityLog } from './components/ActivityLog';
+import { MissionPanel } from './components/MissionPanel';
+import { Card, SituationPanel, TasksPanel, DevicesPanel, SystemPanel } from './components/DashboardPanels';
 
 export function App() {
   const {
@@ -36,6 +39,14 @@ export function App() {
     judgements,
     resolveJudgement,
     activity,
+    context,
+    todos,
+    addTodo,
+    completeTodo,
+    deleteTodo,
+    clients,
+    telemetry,
+    connectors,
   } = useNestorWebSocket();
 
   const pendingJudgement = judgements.find((j) => j.pending);
@@ -71,6 +82,13 @@ export function App() {
 
       {/* Main Workspace Body */}
       <div className="flex-1 flex overflow-hidden relative">
+        {/* Colonne gauche du tableau de bord (grand ecran) */}
+        <aside className="hidden xl:flex w-[320px] shrink-0 flex-col gap-3 p-3 overflow-y-auto border-r border-slate-800/80 select-text">
+          <SituationPanel context={context} />
+          <TasksPanel todos={todos} onAdd={addTodo} onComplete={completeTodo} onDelete={deleteTodo} />
+          <DevicesPanel clients={clients} connected={connectionState === 'connected'} />
+        </aside>
+
         {/* Left/Center Cockpit Area */}
         <div className="flex-1 flex flex-col h-full overflow-hidden relative">
           {/* Ambient Background Gradient based on Status */}
@@ -117,6 +135,12 @@ export function App() {
             />
           </div>
 
+          {/* Journal d'activite sous le dialogue (grand ecran) */}
+          <div className="hidden xl:flex shrink-0 h-36 flex-col border-t border-slate-800/80 bg-slate-950/60 select-text">
+            <div className="px-3 pt-2 text-[11px] font-mono font-semibold tracking-[0.14em] text-slate-400 uppercase">Journal d'activité</div>
+            <ActivityLog activity={activity} />
+          </div>
+
           {/* Confirmation demandee par le juge : visible meme console fermee */}
           {pendingJudgement && (
             <div className="shrink-0 z-10 border-t border-amber-500/40 bg-amber-950/40 px-3 sm:px-6 py-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm select-text">
@@ -148,6 +172,25 @@ export function App() {
           </div>
         </div>
 
+        {/* Colonne droite du tableau de bord (grand ecran) */}
+        <aside className="hidden xl:flex w-[340px] shrink-0 flex-col gap-3 p-3 overflow-y-auto border-l border-slate-800/80 select-text">
+          <Card title="Conscience" aside={<span className="font-mono text-[11px] text-slate-400">{settings?.judge_model ?? '—'}</span>}>
+            <div className="-m-3 max-h-80 flex flex-col">
+              <ConsciencePanel judgements={judgements} onResolve={resolveJudgement} />
+            </div>
+          </Card>
+          <Card title="Missions">
+            {missions.length === 0 ? (
+              <p className="text-slate-500 text-[13px]">Aucune mission en cours.</p>
+            ) : (
+              <div className="-m-3">
+                <MissionPanel missions={missions} usage={null} onStopMission={stopMission} />
+              </div>
+            )}
+          </Card>
+          <SystemPanel telemetry={telemetry} usage={usage} />
+        </aside>
+
         {/* Right Lateral Observability Console for Tool Calls (Sidebar on desktop, slide-over drawer on mobile) */}
         <ToolConsole
           toolCalls={toolCalls}
@@ -168,6 +211,8 @@ export function App() {
           settings={settings}
           onChange={updateSettings}
           lastInterruptRms={voiceMeter.lastInterruptRms}
+          connectors={connectors}
+          context={context}
         />
       </div>
     </div>

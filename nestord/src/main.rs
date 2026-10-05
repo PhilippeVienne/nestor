@@ -7,6 +7,7 @@ mod audio;
 mod brain;
 mod claude_process;
 mod config;
+mod dashboard;
 mod judge;
 mod mcp;
 mod mission;
@@ -119,6 +120,7 @@ async fn main() -> anyhow::Result<()> {
         usage: usage.clone(),
         brain: brain.clone(),
     });
+    dashboard::spawn_ticker(events_tx.clone(), config.clone(), state.current_place.clone());
 
     let app = Router::new()
         .route("/ws", get(ws::ws_handler))

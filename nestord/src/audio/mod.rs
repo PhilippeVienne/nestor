@@ -535,7 +535,9 @@ fn listen_loop(
                     }
 
                     let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Thinking });
+                    let stt_started = std::time::Instant::now();
                     let transcription = whisper.transcribe(&utterance, &stt_lang);
+                    crate::dashboard::record_stt_ms(stt_started.elapsed().as_millis() as u64);
                     tracing::debug!(?transcription, "resultat de la transcription whisper");
                     match transcription {
                         Ok(text) if !text.trim().is_empty() => {
@@ -662,6 +664,7 @@ fn speak_loop(
             continue;
         }
 
+        let tts_started = std::time::Instant::now();
         let waveform = match synth.synthesize(&sentence) {
             Ok(w) => w,
             Err(err) => {
@@ -684,6 +687,7 @@ fn speak_loop(
         speaking_until_ms.store(playback_end, Ordering::SeqCst);
         wake_active_until_ms.store(playback_end + timeout_ms, Ordering::SeqCst);
 
+        crate::dashboard::record_tts_ms(tts_started.elapsed().as_millis() as u64);
         recent_speech.record(now_ms(), &sentence);
         aec_reference.push(&waveform, sample_rate);
         let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Speaking });

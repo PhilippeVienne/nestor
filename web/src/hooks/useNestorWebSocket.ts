@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type {
+  ContextInfo,
+  TodoItem,
+  ClientInfo,
+  TelemetryInfo,
+  ConnectorInfo,
   JudgeItem,
   ActivityItem,
   NestorSettings,
@@ -62,6 +67,11 @@ export function useNestorWebSocket({
   const [settings, setSettings] = useState<NestorSettings | null>(null);
   const settingsRef = useRef<NestorSettings | null>(null);
   const [judgements, setJudgements] = useState<JudgeItem[]>([]);
+  const [context, setContext] = useState<ContextInfo | null>(null);
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [clients, setClients] = useState<ClientInfo[]>([]);
+  const [telemetry, setTelemetry] = useState<TelemetryInfo | null>(null);
+  const [connectors, setConnectors] = useState<ConnectorInfo[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const lastWakeRef = useRef<boolean | null>(null);
   const knownJudgeIdsRef = useRef(new Set<number>());
@@ -262,6 +272,30 @@ export function useNestorWebSocket({
               pushActivity('judge', approved ? 'Confirmation approuvée' : 'Confirmation refusée ou abandonnée');
               break;
             }
+
+            case 'context': {
+              const { type: _type, ...info } = data;
+              setContext(info);
+              break;
+            }
+
+            case 'todos':
+              setTodos(data.items);
+              break;
+
+            case 'clients':
+              setClients(data.items);
+              break;
+
+            case 'telemetry': {
+              const { type: _type, ...info } = data;
+              setTelemetry(info);
+              break;
+            }
+
+            case 'connectors':
+              setConnectors(data.items);
+              break;
 
             case 'settings':
               settingsRef.current = data.settings;
@@ -634,6 +668,17 @@ export function useNestorWebSocket({
     [sendEvent]
   );
 
+  // Taches : le daemon rediffuse la liste apres chaque changement.
+  const addTodo = useCallback(
+    (title: string, options?: { dueAt?: string; recurrence?: string }) => {
+      if (!title.trim()) return;
+      sendEvent({ type: 'todo_add', title: title.trim(), due_at: options?.dueAt, recurrence: options?.recurrence });
+    },
+    [sendEvent]
+  );
+  const completeTodo = useCallback((id: number) => sendEvent({ type: 'todo_complete', id }), [sendEvent]);
+  const deleteTodo = useCallback((id: number) => sendEvent({ type: 'todo_delete', id }), [sendEvent]);
+
   // Reponse, depuis l'UI, a une confirmation demandee par le juge.
   const resolveJudgement = useCallback(
     (id: number, approve: boolean) => {
@@ -745,5 +790,13 @@ export function useNestorWebSocket({
     judgements,
     resolveJudgement,
     activity,
+    context,
+    todos,
+    addTodo,
+    completeTodo,
+    deleteTodo,
+    clients,
+    telemetry,
+    connectors,
   };
 }

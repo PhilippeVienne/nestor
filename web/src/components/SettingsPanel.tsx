@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import type { NestorSettings } from '../types';
+import type { ConnectorInfo, ContextInfo, NestorSettings } from '../types';
+import { ConnectorsList } from './DashboardPanels';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -9,6 +10,8 @@ interface SettingsPanelProps {
   onChange: (patch: Partial<NestorSettings>) => void;
   /** Niveau moyen de la derniere interruption vocale, pour caler l'energie minimale. */
   lastInterruptRms?: number;
+  connectors: ConnectorInfo[];
+  context: ContextInfo | null;
 }
 
 const JUDGE_MODELS = ['qwen2.5:1.5b', 'llama3.2:3b', 'llama3.2:1b'];
@@ -118,7 +121,15 @@ const NumberField: React.FC<{
 };
 
 /** Ecran « Reglages » : chaque changement est applique a chaud et enregistre par le daemon. */
-export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings, onChange, lastInterruptRms }) => {
+export const SettingsPanel: React.FC<SettingsPanelProps> = ({
+  isOpen,
+  onClose,
+  settings,
+  onChange,
+  lastInterruptRms,
+  connectors,
+  context,
+}) => {
   if (!isOpen) return null;
 
   const models = settings && !JUDGE_MODELS.includes(settings.judge_model)
@@ -262,6 +273,22 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, s
                   onCommit={(v) => onChange({ judge_reject_threshold: v })}
                 />
               </div>
+            </Section>
+
+            <Section title="Connecteurs MCP">
+              <ConnectorsList connectors={connectors} />
+            </Section>
+
+            <Section title="Accès au daemon">
+              <p className={context?.auth_required ? 'text-cyan-300' : 'text-amber-200'}>
+                {context?.auth_required
+                  ? 'Un jeton est exigé pour se connecter.'
+                  : 'Aucun jeton exigé : toute connexion locale peut piloter Nestor.'}
+              </p>
+              <p className="text-[13px] text-slate-400">
+                Jeton d'onboarding : commande <span className="font-mono text-slate-200">nestord onboard</span>, puis
+                redémarrage du daemon.
+              </p>
             </Section>
 
             <p className="text-[13px] text-slate-400">
