@@ -113,3 +113,31 @@ enchainements de deux mots) est ecarte : ni dialogue, ni reveil, ni prolongation
 de la fenetre conversationnelle. Les enonces de moins de 4 mots ne sont jamais
 filtres. Cela traite l'echo *transcrit* ; l'echo qui declencherait une
 interruption vocale releve de l'annulation d'echo des clients.
+
+## Annulation d'echo cote serveur (AEC)
+
+Pendant que Nestor parle, le micro passe par l'AEC3 de WebRTC (`sonora`, Rust pur,
+`audio/aec.rs`) avant le VAD du barge-in vocal, avec pour reference la voix que
+Nestor envoie aux haut-parleurs. Les trames de reference avancent au rythme des
+trames micro (10 ms pour 10 ms) ; l'AEC estime lui-meme le retard de lecture.
+
+**Contrainte pour les clients** : envoyer le micro **en continu** tant que de
+l'audio est lu (plus ~1,5 s), sans filtre d'energie. Des trous dans le flux micro
+desynchroniseraient la reference. Le client web et l'app Android le font des
+reception d'un `audio_chunk` et reprennent leur filtre apres un `interrupt`.
+
+Desactivation : `NESTORD_AEC=0` ou `[barge_in] aec = false`.
+
+### Validation (simulation)
+
+Banc de test : le client rejoue au micro la voix de Nestor, retardee de 100 ms
+et attenuee de moitie, avec du bruit.
+
+| Scenario | Resultat |
+|---|---|
+| Echo seul, sans AEC | Nestor s'interrompt tout seul apres 0,5 s |
+| Echo seul, avec AEC | aucune interruption pendant toute la reponse |
+| Echo + parole utilisateur, avec AEC | interruption ~0,6 s apres le debut de la parole |
+
+Limites : echo lineaire et sans reverberation, sans l'AEC du client ni distorsion
+des haut-parleurs. A confirmer avec un vrai materiel.

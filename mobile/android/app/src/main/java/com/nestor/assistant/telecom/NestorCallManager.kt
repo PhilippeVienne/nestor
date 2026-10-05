@@ -93,6 +93,11 @@ class NestorCallManager private constructor(private val context: Context) {
     // Audio recording & playback
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
+
+    // Fin de lecture estimee de la voix de Nestor : le micro est envoye en continu jusque-la
+    // (le daemon annule l'echo avec son signal de reference, il lui faut un flux sans trous).
+    @Volatile private var playbackEndMs = 0L
+    @Volatile private var gateBypassUntilMs = 0L
     private var echoCanceler: AcousticEchoCanceler? = null
     private var noiseSuppressor: NoiseSuppressor? = null
 
@@ -428,7 +433,7 @@ class NestorCallManager private constructor(private val context: Context) {
                 if (!isMicMuted && webSocket != null) {
                     val currentFrame = byteBuffer.copyOf(readCount * 2)
 
-                    if (rms >= ENERGY_VAD_THRESHOLD) {
+                    if (rms >= ENERGY_VAD_THRESHOLD || System.currentTimeMillis() < gateBypassUntilMs) {
                         if (!inVoice) {
                             inVoice = true
                             // Fin du silence : envoyer le pre-roll complet d'abord
@@ -500,6 +505,8 @@ class NestorCallManager private constructor(private val context: Context) {
 
     fun bargeIn() {
         try {
+            playbackEndMs = 0L
+            gateBypassUntilMs = 0L
             // Instantly clear AudioTrack playback buffer
             audioTrack?.pause()
             audioTrack?.flush()
@@ -696,6 +703,8 @@ class NestorCallManager private constructor(private val context: Context) {
                 }
                 "interrupt" -> {
                     // Interruption vocale detectee par le daemon : on vide la lecture en cours.
+                    playbackEndMs = 0L
+                    gateBypassUntilMs = 0L
                     audioTrack?.pause()
                     audioTrack?.flush()
                     audioTrack?.play()
@@ -705,6 +714,10 @@ class NestorCallManager private constructor(private val context: Context) {
                     val b64 = obj.optString("data", "")
                     if (b64.isNotEmpty()) {
                         val pcmBytes = Base64.decode(b64, Base64.DEFAULT)
+                        val rate = obj.optInt("sample_rate", 22050).coerceAtLeast(1)
+                        val chunkMs = pcmBytes.size / 2 * 1000L / rate
+                        playbackEndMs = maxOf(playbackEndMs, System.currentTimeMillis()) + chunkMs
+                        gateBypassUntilMs = playbackEndMs + 1500
                         playAudioBytes(pcmBytes)
                     }
                 }

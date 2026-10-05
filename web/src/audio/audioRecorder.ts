@@ -7,6 +7,18 @@ export interface AudioRecorderOptions {
 }
 
 export class AudioRecorder {
+  private holdOpenUntil = 0;
+
+  /** Garde le micro ouvert (envoi continu) jusqu'a `untilMs` (epoch ms). */
+  public holdOpen(untilMs: number): void {
+    this.holdOpenUntil = Math.max(this.holdOpenUntil, untilMs);
+  }
+
+  /** Referme immediatement (interruption : la lecture est coupee). */
+  public releaseHold(): void {
+    this.holdOpenUntil = 0;
+  }
+
   private targetSampleRate: number;
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
@@ -93,7 +105,10 @@ export class AudioRecorder {
           // Le base64 n'est calcule que pour les trames reellement envoyees.
           const send = (buf: ArrayBuffer) => this.onAudioChunk?.(buf, this.arrayBufferToBase64(buf));
 
-          if (rms >= ENERGY_THRESHOLD) {
+          // Pendant la lecture de Nestor, le micro est envoye en continu (sans filtre
+          // d'energie) : le daemon en a besoin, avec son signal de reference, pour
+          // annuler l'echo de sa propre voix.
+          if (rms >= ENERGY_THRESHOLD || Date.now() < this.holdOpenUntil) {
             if (!inVoice) {
               inVoice = true;
               // Vide le pre-roll pour capturer l'attaque du mot

@@ -181,11 +181,14 @@ pub struct BargeInConfig {
     pub threshold: f32,
     /// Duree de parole continue exigee avant d'interrompre.
     pub min_speech_ms: u64,
+    /// Annulation d'echo cote serveur (AEC3, signal de reference = voix de Nestor)
+    /// appliquee au micro pendant la lecture, avant la detection de parole.
+    pub aec: bool,
 }
 
 impl Default for BargeInConfig {
     fn default() -> Self {
-        Self { voice: true, threshold: 0.85, min_speech_ms: 300 }
+        Self { voice: true, threshold: 0.85, min_speech_ms: 300, aec: true }
     }
 }
 
@@ -300,6 +303,10 @@ nestord n'ecoute que sur 127.0.0.1, a definir avant toute exposition reseau plus
 
         if let Ok(val) = std::env::var("NESTORD_VOICE_BARGE_IN") {
             config.barge_in.voice = val != "0" && val.to_ascii_lowercase() != "false";
+        }
+
+        if let Ok(val) = std::env::var("NESTORD_AEC") {
+            config.barge_in.aec = val != "0" && val.to_ascii_lowercase() != "false";
         }
 
         if let Ok(val) = std::env::var("NESTORD_TURN_DETECTION") {

@@ -9,6 +9,7 @@
 //! Le calcul (ONNX Runtime / whisper.cpp, tous deux bloquants) tourne sur des
 //! threads OS dedies plutot que sur l'executeur tokio.
 
+mod aec;
 mod echo;
 mod stt;
 mod tts;
@@ -90,6 +91,7 @@ pub fn spawn(
 ) -> Result<()> {
     let models = models_dir();
     let recent_speech = Arc::new(echo::RecentSpeech::default());
+    let aec_reference = Arc::new(aec::Reference::default());
 
     let vad_model = models.join("silero_vad.onnx");
     let whisper_model = models.join("ggml-large-v3-turbo-q5_0.bin");
@@ -142,6 +144,7 @@ pub fn spawn(
         let barge_in_gen = barge_in_gen.clone();
         let turn_started_gen = turn_started_gen.clone();
         let recent_speech = recent_speech.clone();
+        let aec_reference = aec_reference.clone();
         let config = config.clone();
         std::thread::spawn(move || {
             if let Err(err) = listen_loop(
@@ -156,6 +159,7 @@ pub fn spawn(
                 barge_in_gen,
                 turn_started_gen,
                 recent_speech,
+                aec_reference,
                 config,
             ) {
                 tracing::error!(?err, "pipeline d'ecoute (VAD/STT) interrompu");
@@ -175,6 +179,7 @@ pub fn spawn(
                 barge_in_gen,
                 turn_started_gen,
                 recent_speech,
+                aec_reference,
                 speaking_until_ms,
                 wake_active_until_ms,
                 config,
@@ -200,6 +205,7 @@ fn listen_loop(
     barge_in_gen: Arc<AtomicU64>,
     turn_started_gen: Arc<AtomicU64>,
     recent_speech: Arc<echo::RecentSpeech>,
+    aec_reference: Arc<aec::Reference>,
     config: Arc<Config>,
 ) -> Result<()> {
     let mut vad = vad::SileroVad::load(vad_model).context("chargement Silero VAD")?;
@@ -256,6 +262,10 @@ fn listen_loop(
     // Parole continue detectee pendant que Nestor parle (candidate a une interruption).
     let mut barge_buf: Vec<f32> = Vec::new();
     let mut barge_run_ms: u64 = 0;
+    // Annulation d'echo (avec le signal envoye aux haut-parleurs) avant le VAD du barge-in.
+    let mut aec = config.barge_in.aec.then(aec::EchoCanceller::new);
+    let mut aec_in: Vec<f32> = Vec::new();
+    let mut seen_barge_gen = barge_in_gen.load(Ordering::SeqCst);
 
     while let Some(bytes) = mic_rx.blocking_recv() {
         frames_received += 1;
@@ -276,7 +286,23 @@ fn listen_loop(
                 continue;
             }
 
-            pending.extend(pcm16_bytes_to_f32(&bytes));
+            // Interruption (manuelle ou autre) depuis la derniere trame : plus rien a lire.
+            let current_gen = barge_in_gen.load(Ordering::SeqCst);
+            if current_gen != seen_barge_gen {
+                seen_barge_gen = current_gen;
+                aec_reference.clear();
+            }
+
+            // Micro -> AEC (trames de 10 ms, avec la reference du meme instant) -> VAD.
+            aec_in.extend(pcm16_bytes_to_f32(&bytes));
+            while aec_in.len() >= aec::FRAME_SAMPLES {
+                let block: Vec<f32> = aec_in.drain(..aec::FRAME_SAMPLES).collect();
+                let reference = aec_reference.pop_frame();
+                match aec.as_mut() {
+                    Some(canceller) => pending.extend_from_slice(&canceller.process(&block, &reference)),
+                    None => pending.extend_from_slice(&block),
+                }
+            }
             while pending.len() >= VAD_CHUNK_SAMPLES {
                 let window: Vec<f32> = pending.drain(..VAD_CHUNK_SAMPLES).collect();
                 let window_ms = (VAD_CHUNK_SAMPLES as f64 / MIC_SAMPLE_RATE as f64 * 1000.0) as u64;
@@ -301,6 +327,8 @@ fn listen_loop(
                 let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Listening });
 
                 // La parole qui a declenche l'interruption devient le debut de l'enonce.
+                aec_reference.clear();
+                aec_in.clear();
                 speech_buf = std::mem::take(&mut barge_buf);
                 speech_run_ms = barge_run_ms;
                 barge_run_ms = 0;
@@ -319,6 +347,8 @@ fn listen_loop(
         if was_suppressing {
             was_suppressing = false;
             pending.clear();
+            aec_in.clear();
+            aec_reference.clear();
             let mut dropped = 0u32;
             while mic_rx.try_recv().is_ok() {
                 dropped += 1;
@@ -533,6 +563,7 @@ fn speak_loop(
     barge_in_gen: Arc<AtomicU64>,
     turn_started_gen: Arc<AtomicU64>,
     recent_speech: Arc<echo::RecentSpeech>,
+    aec_reference: Arc<aec::Reference>,
     speaking_until_ms: Arc<AtomicU64>,
     wake_active_until_ms: Arc<AtomicU64>,
     config: Arc<Config>,
@@ -580,6 +611,7 @@ fn speak_loop(
         wake_active_until_ms.store(playback_end + timeout_ms, Ordering::SeqCst);
 
         recent_speech.record(now_ms(), &sentence);
+        aec_reference.push(&waveform, sample_rate);
         let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Speaking });
         let pcm_base64 = base64::engine::general_purpose::STANDARD.encode(f32_to_pcm16_bytes(&waveform));
         let _ = events_tx.send(ServerEvent::AudioChunk {

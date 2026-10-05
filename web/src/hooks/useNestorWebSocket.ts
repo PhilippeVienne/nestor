@@ -67,6 +67,7 @@ export function useNestorWebSocket({
   // Audio players and recorders
   const audioPlayerRef = useRef<AudioPlayer | null>(null);
   const audioRecorderRef = useRef<AudioRecorder | null>(null);
+  const playbackEndRef = useRef(0);
   const hasReceivedAudioChunkRef = useRef(false);
   // Usage typique : micro + haut-parleurs. Pendant la lecture, le micro
   // reentend la synthese ; si on l'envoie au backend, elle est transcrite et
@@ -199,6 +200,8 @@ export function useNestorWebSocket({
             case 'interrupt':
               // Interruption vocale detectee par le daemon : on coupe la lecture en cours.
               audioPlayerRef.current?.stop();
+              playbackEndRef.current = 0;
+              audioRecorderRef.current?.releaseHold();
               break;
 
             case 'audio_levels':
@@ -214,6 +217,11 @@ export function useNestorWebSocket({
             case 'audio_chunk': {
               if (isSpeakerActive && audioPlayerRef.current) {
                 hasReceivedAudioChunkRef.current = true;
+                // Fin de lecture estimee (les chunks se jouent a la suite) : micro continu jusque-la.
+                const rate = data.sample_rate || 24000;
+                const chunkMs = ((data.data.length * 3) / 4 / 2 / rate) * 1000;
+                playbackEndRef.current = Math.max(playbackEndRef.current, Date.now()) + chunkMs;
+                audioRecorderRef.current?.holdOpen(playbackEndRef.current + 1500);
                 audioPlayerRef.current.enqueueChunk(
                   data.data,
                   data.format || 'wav',
@@ -524,6 +532,8 @@ export function useNestorWebSocket({
     if (audioPlayerRef.current) {
       audioPlayerRef.current.stop();
     }
+    playbackEndRef.current = 0;
+    audioRecorderRef.current?.releaseHold();
 
     // 2. Send barge_in event to backend
     const sent = sendEvent({ type: 'barge_in' });
