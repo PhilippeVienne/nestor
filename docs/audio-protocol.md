@@ -103,3 +103,13 @@ pure pour la sortie - a coordonner avant de changer.
 - L'echo de la voix de Nestor ne doit pas l'interrompre : les clients gardent
   l'annulation d'echo activee (navigateur : `echoCancellation`, Android :
   `VOICE_COMMUNICATION` + `AcousticEchoCanceler`).
+
+## Auto-ecoute (echo de Nestor)
+
+Au-dela de la fenetre de suppression temporelle, `audio/echo.rs` garde les
+phrases recemment prononcees (90 s). Un enonce transcrit qui les recopie (au
+moins 80 % de mots communs dont un mot porteur de sens, ou la moitie des
+enchainements de deux mots) est ecarte : ni dialogue, ni reveil, ni prolongation
+de la fenetre conversationnelle. Les enonces de moins de 4 mots ne sont jamais
+filtres. Cela traite l'echo *transcrit* ; l'echo qui declencherait une
+interruption vocale releve de l'annulation d'echo des clients.

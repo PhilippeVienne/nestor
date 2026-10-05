@@ -9,6 +9,7 @@
 //! Le calcul (ONNX Runtime / whisper.cpp, tous deux bloquants) tourne sur des
 //! threads OS dedies plutot que sur l'executeur tokio.
 
+mod echo;
 mod stt;
 mod tts;
 mod vad;
@@ -88,6 +89,7 @@ pub fn spawn(
     config: Arc<Config>,
 ) -> Result<()> {
     let models = models_dir();
+    let recent_speech = Arc::new(echo::RecentSpeech::default());
 
     let vad_model = models.join("silero_vad.onnx");
     let whisper_model = models.join("ggml-large-v3-turbo-q5_0.bin");
@@ -139,6 +141,7 @@ pub fn spawn(
         let wake_active_until_ms = wake_active_until_ms.clone();
         let barge_in_gen = barge_in_gen.clone();
         let turn_started_gen = turn_started_gen.clone();
+        let recent_speech = recent_speech.clone();
         let config = config.clone();
         std::thread::spawn(move || {
             if let Err(err) = listen_loop(
@@ -152,6 +155,7 @@ pub fn spawn(
                 wake_active_until_ms,
                 barge_in_gen,
                 turn_started_gen,
+                recent_speech,
                 config,
             ) {
                 tracing::error!(?err, "pipeline d'ecoute (VAD/STT) interrompu");
@@ -170,6 +174,7 @@ pub fn spawn(
                 &piper_dir,
                 barge_in_gen,
                 turn_started_gen,
+                recent_speech,
                 speaking_until_ms,
                 wake_active_until_ms,
                 config,
@@ -194,6 +199,7 @@ fn listen_loop(
     wake_active_until_ms: Arc<AtomicU64>,
     barge_in_gen: Arc<AtomicU64>,
     turn_started_gen: Arc<AtomicU64>,
+    recent_speech: Arc<echo::RecentSpeech>,
     config: Arc<Config>,
 ) -> Result<()> {
     let mut vad = vad::SileroVad::load(vad_model).context("chargement Silero VAD")?;
@@ -431,6 +437,15 @@ fn listen_loop(
                         Ok(text) if !text.trim().is_empty() => {
                             let text = text.trim();
                             let now = now_ms();
+
+                            // Echo de la propre voix de Nestor : ni dialogue ni reveil.
+                            if recent_speech.is_echo(now, text) {
+                                tracing::info!(%text, "enonce ecarte : echo de la voix de Nestor");
+                                let status = if detector.is_active(now) { DaemonStatus::Listening } else { DaemonStatus::Idle };
+                                let _ = events_tx.send(ServerEvent::State { status });
+                                continue;
+                            }
+
                             let action = detector.evaluate(text, now);
                             tracing::info!(%text, ?action, "evaluation mot-cle (wake word)");
 
@@ -517,6 +532,7 @@ fn speak_loop(
     piper_dir: &std::path::Path,
     barge_in_gen: Arc<AtomicU64>,
     turn_started_gen: Arc<AtomicU64>,
+    recent_speech: Arc<echo::RecentSpeech>,
     speaking_until_ms: Arc<AtomicU64>,
     wake_active_until_ms: Arc<AtomicU64>,
     config: Arc<Config>,
@@ -563,6 +579,7 @@ fn speak_loop(
         speaking_until_ms.store(playback_end, Ordering::SeqCst);
         wake_active_until_ms.store(playback_end + timeout_ms, Ordering::SeqCst);
 
+        recent_speech.record(now_ms(), &sentence);
         let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Speaking });
         let pcm_base64 = base64::engine::general_purpose::STANDARD.encode(f32_to_pcm16_bytes(&waveform));
         let _ = events_tx.send(ServerEvent::AudioChunk {
