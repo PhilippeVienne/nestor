@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wifi, WifiOff, Cpu, RefreshCw, Volume2, Mic, Terminal, Zap, Sparkles, SlidersHorizontal } from 'lucide-react';
+import { Wifi, WifiOff, Cpu, RefreshCw, Volume2, Mic, Terminal, Zap, Sparkles, SlidersHorizontal, LayoutDashboard } from 'lucide-react';
 import type { DaemonStatus, ConnectionState, BackendStatusInfo } from '../types';
 
 interface HeaderProps {
@@ -14,6 +14,8 @@ interface HeaderProps {
   backendStatus?: BackendStatusInfo;
   onSetBackend?: (backend: string) => void;
   onOpenSettings?: () => void;
+  /** Ouvre le tableau de bord en tiroir (affiche seulement sous 1280 px). */
+  onOpenDashboard?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -28,6 +30,7 @@ export const Header: React.FC<HeaderProps> = ({
   backendStatus,
   onSetBackend,
   onOpenSettings,
+  onOpenDashboard,
 }) => {
   const getStatusBadge = () => {
     switch (status) {
@@ -134,7 +137,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="w-full flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3 border-b border-slate-800/60 bg-slate-950/80 backdrop-blur-xl shrink-0 z-20">
+    <header className="w-full flex flex-wrap items-center justify-between gap-x-2 gap-y-2 px-3 sm:px-6 py-2.5 sm:py-3 border-b border-slate-800/60 bg-slate-950/80 backdrop-blur-xl shrink-0 z-20">
       {/* Brand & Assistant Name */}
       <div className="flex items-center gap-2.5 sm:gap-3">
         <div className="w-8 h-8 rounded-xl overflow-hidden border border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.3)] shrink-0 bg-[#030c28]">
@@ -166,6 +169,18 @@ export const Header: React.FC<HeaderProps> = ({
         {getConnectionBadge()}
 
         {/* Toggle Tool & Missions Console (Desktop & Mobile) */}
+        {onOpenDashboard && (
+          <button
+            type="button"
+            onClick={onOpenDashboard}
+            title="Tableau de bord"
+            aria-label="Tableau de bord"
+            className="xl:hidden flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg border border-slate-700/80 bg-slate-900/60 text-slate-300 hover:text-white hover:border-slate-500 text-[11px] sm:text-xs font-mono transition-colors"
+          >
+            <LayoutDashboard className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Tableau</span>
+          </button>
+        )}
         {onOpenSettings && (
           <button
             type="button"

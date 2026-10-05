@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { X } from 'lucide-react';
 import { useNestorWebSocket } from './hooks/useNestorWebSocket';
 import { OrbCanvas } from './components/OrbCanvas';
 import { DialogueStream } from './components/DialogueStream';
@@ -54,6 +55,8 @@ export function App() {
   // Default closed to keep UI clean and spacious; opens smoothly when user wants or tools run
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // Petit ecran : les panneaux des colonnes s'ouvrent dans un tiroir plein ecran.
+  const [isDashboardOpen, setIsDashboardOpen] = useState(false);
 
   // Automatically open console when tools start running if not already open
   const runningToolsCount = toolCalls.filter((t) => t.status === 'running').length;
@@ -62,6 +65,34 @@ export function App() {
       setIsConsoleOpen(true);
     }
   }, [runningToolsCount]);
+
+  const leftPanels = (
+    <>
+      <SituationPanel context={context} />
+      <TasksPanel todos={todos} onAdd={addTodo} onComplete={completeTodo} onDelete={deleteTodo} />
+      <DevicesPanel clients={clients} connected={connectionState === 'connected'} />
+    </>
+  );
+
+  const rightPanels = (
+    <>
+      <Card title="Conscience" aside={<span className="font-mono text-[11px] text-slate-400">{settings?.judge_model ?? '—'}</span>}>
+        <div className="-m-3 max-h-80 flex flex-col">
+          <ConsciencePanel judgements={judgements} onResolve={resolveJudgement} />
+        </div>
+      </Card>
+      <Card title="Missions">
+        {missions.length === 0 ? (
+          <p className="text-slate-500 text-[13px]">Aucune mission en cours.</p>
+        ) : (
+          <div className="-m-3">
+            <MissionPanel missions={missions} usage={null} onStopMission={stopMission} />
+          </div>
+        )}
+      </Card>
+      <SystemPanel telemetry={telemetry} usage={usage} />
+    </>
+  );
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#080a0f] text-slate-100 overflow-hidden font-sans select-none">
@@ -78,15 +109,14 @@ export function App() {
         backendStatus={backendStatus}
         onSetBackend={setBackend}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenDashboard={() => setIsDashboardOpen(true)}
       />
 
       {/* Main Workspace Body */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Colonne gauche du tableau de bord (grand ecran) */}
         <aside className="hidden xl:flex w-[320px] shrink-0 flex-col gap-3 p-3 overflow-y-auto border-r border-slate-800/80 select-text">
-          <SituationPanel context={context} />
-          <TasksPanel todos={todos} onAdd={addTodo} onComplete={completeTodo} onDelete={deleteTodo} />
-          <DevicesPanel clients={clients} connected={connectionState === 'connected'} />
+          {leftPanels}
         </aside>
 
         {/* Left/Center Cockpit Area */}
@@ -174,21 +204,7 @@ export function App() {
 
         {/* Colonne droite du tableau de bord (grand ecran) */}
         <aside className="hidden xl:flex w-[340px] shrink-0 flex-col gap-3 p-3 overflow-y-auto border-l border-slate-800/80 select-text">
-          <Card title="Conscience" aside={<span className="font-mono text-[11px] text-slate-400">{settings?.judge_model ?? '—'}</span>}>
-            <div className="-m-3 max-h-80 flex flex-col">
-              <ConsciencePanel judgements={judgements} onResolve={resolveJudgement} />
-            </div>
-          </Card>
-          <Card title="Missions">
-            {missions.length === 0 ? (
-              <p className="text-slate-500 text-[13px]">Aucune mission en cours.</p>
-            ) : (
-              <div className="-m-3">
-                <MissionPanel missions={missions} usage={null} onStopMission={stopMission} />
-              </div>
-            )}
-          </Card>
-          <SystemPanel telemetry={telemetry} usage={usage} />
+          {rightPanels}
         </aside>
 
         {/* Right Lateral Observability Console for Tool Calls (Sidebar on desktop, slide-over drawer on mobile) */}
@@ -204,6 +220,27 @@ export function App() {
           onResolveJudgement={resolveJudgement}
           activity={activity}
         />
+
+        {/* Tableau de bord en tiroir (petit ecran : les colonnes laterales sont masquees) */}
+        {isDashboardOpen && (
+          <div className="xl:hidden absolute inset-0 z-30 flex flex-col bg-[#080a0f] select-text">
+            <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-800">
+              <h2 className="text-lg font-semibold text-slate-100">Tableau de bord</h2>
+              <button
+                type="button"
+                aria-label="Fermer le tableau de bord"
+                onClick={() => setIsDashboardOpen(false)}
+                className="w-11 h-11 inline-flex items-center justify-center rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 gap-3 content-start">
+              <div className="flex flex-col gap-3 min-w-0">{leftPanels}</div>
+              <div className="flex flex-col gap-3 min-w-0">{rightPanels}</div>
+            </div>
+          </div>
+        )}
 
         <SettingsPanel
           isOpen={isSettingsOpen}
