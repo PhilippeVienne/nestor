@@ -265,6 +265,8 @@ fn listen_loop(
     // Annulation d'echo (avec le signal envoye aux haut-parleurs) avant le VAD du barge-in.
     let mut aec = config.barge_in.aec.then(aec::EchoCanceller::new);
     let mut aec_in: Vec<f32> = Vec::new();
+    // Bilan diagnostic d'une phase de lecture : la parole a-t-elle ete entendue, et a quel niveau ?
+    let (mut diag_max_prob, mut diag_raw_peak, mut diag_clean_peak) = (0f32, 0f32, 0f32);
     let mut seen_barge_gen = barge_in_gen.load(Ordering::SeqCst);
 
     while let Some(bytes) = mic_rx.blocking_recv() {
@@ -298,15 +300,23 @@ fn listen_loop(
             while aec_in.len() >= aec::FRAME_SAMPLES {
                 let block: Vec<f32> = aec_in.drain(..aec::FRAME_SAMPLES).collect();
                 let reference = aec_reference.pop_frame();
-                match aec.as_mut() {
-                    Some(canceller) => pending.extend_from_slice(&canceller.process(&block, &reference)),
-                    None => pending.extend_from_slice(&block),
-                }
+                diag_raw_peak = diag_raw_peak.max(block.iter().fold(0f32, |m, s| m.max(s.abs())));
+                let cleaned = match aec.as_mut() {
+                    Some(canceller) => canceller.process(&block, &reference),
+                    None => {
+                        let mut b = [0f32; aec::FRAME_SAMPLES];
+                        b.copy_from_slice(&block);
+                        b
+                    }
+                };
+                diag_clean_peak = diag_clean_peak.max(cleaned.iter().fold(0f32, |m, s| m.max(s.abs())));
+                pending.extend_from_slice(&cleaned);
             }
             while pending.len() >= VAD_CHUNK_SAMPLES {
                 let window: Vec<f32> = pending.drain(..VAD_CHUNK_SAMPLES).collect();
                 let window_ms = (VAD_CHUNK_SAMPLES as f64 / MIC_SAMPLE_RATE as f64 * 1000.0) as u64;
                 let prob = vad.process(&window).unwrap_or(0.0);
+                diag_max_prob = diag_max_prob.max(prob);
                 if prob >= config.barge_in.threshold {
                     barge_buf.extend_from_slice(&window);
                     barge_run_ms += window_ms;
@@ -346,6 +356,13 @@ fn listen_loop(
         // l'echo qu'il ne faut pas analyser.
         if was_suppressing {
             was_suppressing = false;
+            tracing::debug!(
+                diag_max_prob,
+                diag_raw_peak,
+                diag_clean_peak,
+                "bilan micro pendant la lecture (prob VAD max, pic micro brut, pic apres AEC)"
+            );
+            (diag_max_prob, diag_raw_peak, diag_clean_peak) = (0.0, 0.0, 0.0);
             pending.clear();
             aec_in.clear();
             aec_reference.clear();

@@ -83,7 +83,10 @@ impl Default for JudgeConfig {
         Self {
             enabled: true,
             ollama_host: "http://127.0.0.1:11434".to_string(),
-            model: "llama3.2:1b".to_string(),
+            // Choisi sur une batterie de phrases saines/dangereuses (judge.rs, test ignore) :
+            // llama3.2:1b bloquait des phrases ordinaires (hallucinait un "rm -rf"),
+            // llama3.2:3b laissait passer l'envoi d'une cle SSH.
+            model: "qwen2.5:1.5b".to_string(),
             confirm_threshold: 60,
             reject_threshold: 90,
             timeout_ms: 4000,
