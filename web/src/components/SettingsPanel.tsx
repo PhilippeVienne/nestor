@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import type { ConnectorInfo, ContextInfo, NestorSettings } from '../types';
+import type { ConnectorInfo, ContextInfo, NestorSettings, ToolMode } from '../types';
 import { ConnectorsList } from './DashboardPanels';
 
 interface SettingsPanelProps {
@@ -11,7 +11,11 @@ interface SettingsPanelProps {
   /** Niveau moyen de la derniere interruption vocale, pour caler l'energie minimale. */
   lastInterruptRms?: number;
   connectors: ConnectorInfo[];
+  onSetToolMode: (server: string, tool: string, mode: ToolMode) => void;
   context: ContextInfo | null;
+  authToken: string;
+  onSetAuthToken: (token: string) => void;
+  connected: boolean;
 }
 
 const JUDGE_MODELS = ['qwen2.5:1.5b', 'llama3.2:3b', 'llama3.2:1b'];
@@ -128,8 +132,14 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onChange,
   lastInterruptRms,
   connectors,
+  onSetToolMode,
   context,
+  authToken,
+  onSetAuthToken,
+  connected,
 }) => {
+  const [tokenDraft, setTokenDraft] = useState(authToken);
+  useEffect(() => setTokenDraft(authToken), [authToken]);
   if (!isOpen) return null;
 
   const models = settings && !JUDGE_MODELS.includes(settings.judge_model)
@@ -154,6 +164,46 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        <Section title="Accès au daemon">
+          <p className={!connected ? 'text-amber-200' : context?.auth_required ? 'text-cyan-300' : 'text-amber-200'}>
+            {!connected
+              ? 'Non connecté. Si le daemon exige un jeton, saisissez-le ci-dessous.'
+              : context?.auth_required
+              ? 'Connecté. Un jeton est exigé pour se connecter.'
+              : 'Connecté sans jeton : toute connexion locale peut piloter Nestor. Les connecteurs externes restent désactivés.'}
+          </p>
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              onSetAuthToken(tokenDraft);
+            }}
+          >
+            <label htmlFor="auth-token" className="sr-only">
+              Jeton d'accès
+            </label>
+            <input
+              id="auth-token"
+              type="password"
+              autoComplete="off"
+              value={tokenDraft}
+              onChange={(e) => setTokenDraft(e.target.value)}
+              placeholder="Jeton d'accès"
+              className="flex-1 min-w-0 h-11 px-3 rounded-lg border border-slate-700 bg-slate-950 text-slate-100"
+            />
+            <button
+              type="submit"
+              className="h-11 px-4 rounded-lg border border-cyan-500/60 bg-cyan-900/50 text-cyan-50 font-semibold hover:bg-cyan-800/60 shrink-0"
+            >
+              Utiliser
+            </button>
+          </form>
+          <p className="text-[13px] text-slate-400">
+            Jeton d'onboarding : commande <span className="font-mono text-slate-200">nestord onboard</span>, puis
+            redémarrage du daemon. Il est mémorisé dans ce navigateur.
+          </p>
+        </Section>
 
         {!settings ? (
           <p className="text-slate-400">En attente des réglages du daemon : nestord n'est pas connecté.</p>
@@ -276,19 +326,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </Section>
 
             <Section title="Connecteurs MCP">
-              <ConnectorsList connectors={connectors} />
-            </Section>
-
-            <Section title="Accès au daemon">
-              <p className={context?.auth_required ? 'text-cyan-300' : 'text-amber-200'}>
-                {context?.auth_required
-                  ? 'Un jeton est exigé pour se connecter.'
-                  : 'Aucun jeton exigé : toute connexion locale peut piloter Nestor.'}
-              </p>
-              <p className="text-[13px] text-slate-400">
-                Jeton d'onboarding : commande <span className="font-mono text-slate-200">nestord onboard</span>, puis
-                redémarrage du daemon.
-              </p>
+              <ConnectorsList connectors={connectors} onSetToolMode={onSetToolMode} />
             </Section>
 
             <p className="text-[13px] text-slate-400">

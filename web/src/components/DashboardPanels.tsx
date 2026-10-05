@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import type { ClientInfo, ConnectorInfo, ContextInfo, TelemetryInfo, TodoItem, UsageInfo } from '../types';
+import type { ClientInfo, ConnectorInfo, ContextInfo, TelemetryInfo, TodoItem, ToolMode, UsageInfo } from '../types';
 
 /** Carte d'un panneau du tableau de bord. */
 export const Card: React.FC<{ title: string; aside?: React.ReactNode; children: React.ReactNode }> = ({
@@ -263,24 +263,96 @@ export const SystemPanel: React.FC<{ telemetry: TelemetryInfo | null; usage: Usa
 
 // ------------------------------------------------------------------ Connecteurs
 
-export const ConnectorsList: React.FC<{ connectors: ConnectorInfo[] }> = ({ connectors }) => (
-  <div className="flex flex-col gap-2">
-    {connectors.map((connector) => (
-      <div key={connector.name} className="rounded-lg border border-slate-800 p-3 flex flex-col gap-1.5">
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="font-semibold text-slate-100">
-            {connector.name} <span className="font-normal text-slate-400">· {connector.kind}</span>
-          </span>
-          <span className="font-mono text-[11px] text-cyan-300 shrink-0">
-            connecté · {connector.tools.length} outils
-          </span>
-        </div>
-        <div className="font-mono text-[11px] text-slate-400 break-words">{connector.tools.join(' · ')}</div>
+const STATUS_LABEL: Record<string, string> = {
+  connected: 'connecté',
+  connecting: 'connexion…',
+  error: 'en erreur',
+  disabled: 'non démarré',
+};
+
+const MODE_LABEL: Record<ToolMode, string> = {
+  read: 'Lecture libre',
+  confirm: 'Avec mon accord',
+  off: 'Non exposé',
+};
+
+export const ConnectorsList: React.FC<{
+  connectors: ConnectorInfo[];
+  onSetToolMode: (server: string, tool: string, mode: ToolMode) => void;
+}> = ({ connectors, onSetToolMode }) => {
+  const externals = connectors.filter((c) => c.kind !== 'interne');
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="rounded-lg border border-amber-500/40 bg-amber-950/20 p-3 text-[13px] text-amber-100">
+        <span className="font-semibold">Règle par défaut : lecture seule, votre accord pour toute écriture.</span> Nestor
+        consulte librement ; envoyer, modifier ou supprimer attend votre « oui » (bouton ou voix).
       </div>
-    ))}
-    <div className="rounded-lg border border-dashed border-slate-700 p-3 text-[13px] text-slate-400">
-      Aucun connecteur externe. Les accès personnels (messagerie, agenda…) arriveront en lecture seule, avec
-      confirmation pour toute écriture.
+
+      {connectors.map((connector) => (
+        <div key={connector.name} className="rounded-lg border border-slate-800 p-3 flex flex-col gap-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="font-semibold text-slate-100">
+              {connector.name} <span className="font-normal text-slate-400">· {connector.kind}</span>
+            </span>
+            <span
+              className={`font-mono text-[11px] shrink-0 ${
+                connector.status === 'connected' ? 'text-cyan-300' : connector.status === 'connecting' ? 'text-slate-300' : 'text-amber-300'
+              }`}
+            >
+              {STATUS_LABEL[connector.status] ?? connector.status}
+              {connector.status === 'connected' ? ` · ${connector.tools.length} outils` : ''}
+            </span>
+          </div>
+          {connector.detail && <div className="text-[13px] text-amber-200 break-words">{connector.detail}</div>}
+
+          {connector.kind === 'interne' ? (
+            <div className="font-mono text-[11px] text-slate-400 break-words">
+              {connector.tools.map((t) => t.name).join(' · ')}
+            </div>
+          ) : (
+            connector.tools.map((tool) => (
+              <div key={tool.name} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 min-h-11">
+                <label htmlFor={`mode-${connector.name}-${tool.name}`} className="min-w-0 flex-1">
+                  <span className="block font-mono text-[13px] text-slate-100 break-words">{tool.name}</span>
+                  {tool.description && <span className="block text-[12px] text-slate-400 break-words">{tool.description}</span>}
+                </label>
+                <select
+                  id={`mode-${connector.name}-${tool.name}`}
+                  value={tool.mode ?? 'confirm'}
+                  onChange={(e) => onSetToolMode(connector.name, tool.name, e.target.value as ToolMode)}
+                  className={`h-11 px-2 rounded-lg border bg-slate-950 text-[13px] shrink-0 ${
+                    tool.mode === 'read'
+                      ? 'border-cyan-500/40 text-cyan-200'
+                      : tool.mode === 'off'
+                      ? 'border-slate-700 text-slate-400'
+                      : 'border-amber-500/40 text-amber-200'
+                  }`}
+                >
+                  {(['read', 'confirm', 'off'] as const).map((mode) => (
+                    <option key={mode} value={mode}>
+                      {MODE_LABEL[mode]}
+                      {tool.default_mode === mode ? ' (défaut)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))
+          )}
+        </div>
+      ))}
+
+      {externals.length === 0 && (
+        <div className="rounded-lg border border-dashed border-slate-700 p-3 text-[13px] text-slate-400">
+          Aucun connecteur externe. Déclarez un serveur dans <span className="font-mono text-slate-200">config.toml</span>{' '}
+          (section <span className="font-mono text-slate-200">[[mcp_servers]]</span>), puis redémarrez nestord.
+        </div>
+      )}
+      {externals.length > 0 && (
+        <p className="text-[12px] text-slate-400">
+          Un changement de mode s'applique tout de suite aux appels. Exposer ou masquer un outil ne modifie la liste vue
+          par l'assistant qu'à sa prochaine session.
+        </p>
+      )}
     </div>
-  </div>
-);
+  );
+};

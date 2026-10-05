@@ -99,26 +99,6 @@ pub fn parse_due_at(raw: &str) -> Option<i64> {
     chrono::Local.from_local_datetime(&naive).single().map(|dt| dt.timestamp())
 }
 
-// ---------------------------------------------------------------- connecteurs
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ConnectorInfo {
-    pub name: String,
-    /// "interne" (serveur MCP de nestord) ou "externe".
-    pub kind: String,
-    pub tools: Vec<String>,
-}
-
-pub fn connectors_event() -> ServerEvent {
-    ServerEvent::Connectors {
-        items: vec![ConnectorInfo {
-            name: "nestor".to_string(),
-            kind: "interne".to_string(),
-            tools: crate::mcp::tool_names(),
-        }],
-    }
-}
-
 // ---------------------------------------------------------------- telemetrie
 
 #[derive(Debug, Clone, Serialize)]

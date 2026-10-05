@@ -62,10 +62,32 @@ export interface TelemetryInfo {
   tts_ms?: number;
 }
 
+export type ToolMode = 'read' | 'confirm' | 'off';
+
+export interface ConnectorTool {
+  name: string;
+  description?: string;
+  /** Mode applique (absent pour les outils internes de nestord). */
+  mode?: ToolMode;
+  /** Mode sans reglage : lecture libre si le serveur l'annonce en lecture seule. */
+  default_mode?: ToolMode;
+}
+
 export interface ConnectorInfo {
   name: string;
   kind: 'interne' | 'externe' | string;
-  tools: string[];
+  status: 'connected' | 'connecting' | 'error' | 'disabled' | string;
+  detail?: string;
+  tools: ConnectorTool[];
+}
+
+/** Ecriture d'un outil externe en attente de l'accord de l'utilisateur. */
+export interface ToolApprovalItem {
+  id: number;
+  server: string;
+  tool: string;
+  arguments: string;
+  timestamp: Date;
 }
 
 export type JudgeDecision = 'allow' | 'confirm' | 'deny';
@@ -147,6 +169,19 @@ export type ServerEvent =
   | {
       type: 'connectors';
       items: ConnectorInfo[];
+    }
+  | {
+      type: 'tool_approval';
+      id: number;
+      server: string;
+      tool: string;
+      arguments: string;
+      at_ms: number;
+    }
+  | {
+      type: 'tool_approval_resolved';
+      id: number;
+      approved: boolean;
     }
   | {
       type: 'judge_verdict';
@@ -259,6 +294,17 @@ export type ClientEvent =
   | {
       type: 'todo_delete';
       id: number;
+    }
+  | {
+      type: 'set_tool_mode';
+      server: string;
+      tool: string;
+      mode: ToolMode;
+    }
+  | {
+      type: 'resolve_tool_approval';
+      id: number;
+      approve: boolean;
     }
   | {
       type: 'resolve_judgement';

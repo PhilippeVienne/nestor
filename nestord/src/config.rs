@@ -33,6 +33,8 @@ pub struct Config {
     pub wake_word: WakeWordConfig,
     pub turn: TurnConfig,
     pub barge_in: BargeInConfig,
+    /// Serveurs MCP externes relayes par nestord (cf. `connectors.rs`).
+    pub mcp_servers: Vec<crate::connectors::McpServerConfig>,
     pub judge: JudgeConfig,
     /// Jeton partage exige pour se connecter a `/ws` (query `?token=...`).
     /// `NESTORD_AUTH_TOKEN` a priorite. Absent (defaut) : pas de verification,
@@ -52,6 +54,7 @@ impl Default for Config {
             wake_word: WakeWordConfig::default(),
             turn: TurnConfig::default(),
             barge_in: BargeInConfig::default(),
+            mcp_servers: Vec::new(),
             judge: JudgeConfig::default(),
             auth_token: None,
         }

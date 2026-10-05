@@ -298,6 +298,15 @@ impl NestorBrain {
     /// rendu de mission, rappel de tache) n'a pas a passer par le juge :
     /// utiliser [`Self::send_internal_report`] pour ceux-la.
     pub async fn send_user_message(&self, content: &str) -> Result<()> {
+        // Une ecriture externe attend un accord : la reponse de l'utilisateur la tranche,
+        // elle n'est pas transmise a l'assistant comme une nouvelle demande.
+        if let Some(connectors) = crate::connectors::global() {
+            if connectors.has_pending() {
+                connectors.resolve_oldest(is_affirmative(content));
+                return Ok(());
+            }
+        }
+
         let pending = self.pending_judged_message.lock().unwrap().take();
         if let Some((id, pending)) = pending {
             let approved = is_affirmative(content);
@@ -350,6 +359,11 @@ impl NestorBrain {
     /// Annonce un message directement (transcript + TTS), sans passer par un
     /// tour de conversation : utilise pour les verdicts du juge, qui n'ont
     /// pas besoin d'etre reformules par le modele.
+    /// Previent l'utilisateur a la voix (confirmation d'une ecriture externe).
+    pub async fn announce_to_user(&self, text: &str) {
+        self.announce(&format!("{}, {text}", self.config.address_form)).await;
+    }
+
     async fn announce(&self, text: &str) {
         let _ = self.events_tx.send(ServerEvent::Transcript {
             role: Role::Assistant,

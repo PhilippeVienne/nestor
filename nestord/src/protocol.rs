@@ -82,7 +82,21 @@ pub enum ServerEvent {
     },
     /// Serveurs MCP exposes a l'assistant (panneau « Connecteurs »).
     Connectors {
-        items: Vec<crate::dashboard::ConnectorInfo>,
+        items: Vec<crate::connectors::ConnectorInfo>,
+    },
+    /// Un outil externe en ecriture attend l'accord de l'utilisateur.
+    ToolApproval {
+        id: u64,
+        server: String,
+        tool: String,
+        /// Arguments de l'appel (JSON lisible, tronque).
+        arguments: String,
+        at_ms: u64,
+    },
+    /// La confirmation d'ecriture a ete tranchee (accord, refus ou delai depasse).
+    ToolApprovalResolved {
+        id: u64,
+        approved: bool,
     },
     /// Reglages courants (ecran « Reglages ») : a la connexion et a chaque changement.
     Settings {
@@ -235,6 +249,17 @@ pub enum ClientEvent {
     },
     TodoDelete {
         id: i64,
+    },
+    /// Mode d'un outil externe choisi dans l'UI : lecture libre, confirmation ou non expose.
+    SetToolMode {
+        server: String,
+        tool: String,
+        mode: crate::connectors::ToolMode,
+    },
+    /// Accord ou refus, depuis l'UI, d'une ecriture externe en attente.
+    ResolveToolApproval {
+        id: u64,
+        approve: bool,
     },
     /// Reponse de l'utilisateur, depuis l'UI, a une confirmation demandee par le juge.
     ResolveJudgement {

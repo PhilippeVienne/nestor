@@ -66,7 +66,10 @@ fn connection_snapshot(state: &AppState) -> Vec<ServerEvent> {
     events.push(crate::dashboard::todos_event(&state.todos));
     events.push(crate::dashboard::clients_event());
     events.push(crate::dashboard::telemetry_event());
-    events.push(crate::dashboard::connectors_event());
+    events.push(crate::connectors::event());
+    if let Some(connectors) = crate::connectors::global() {
+        events.extend(connectors.pending_events());
+    }
 
     let is_wake_active = now_ms() < state.wake_active_until_ms.load(Ordering::SeqCst);
     events.push(ServerEvent::WakeState { active: is_wake_active });
@@ -245,6 +248,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, kind: &'static s
                             tracing::error!(?err, id, "echec de suppression de tache depuis l'UI");
                         }
                         let _ = events_tx.send(crate::dashboard::todos_event(&todos_store));
+                    }
+                    Ok(ClientEvent::SetToolMode { server, tool, mode }) => {
+                        if let Some(connectors) = crate::connectors::global() {
+                            connectors.set_tool_mode(&server, &tool, mode);
+                        }
+                    }
+                    Ok(ClientEvent::ResolveToolApproval { id, approve }) => {
+                        tracing::info!(id, approve, "ecriture externe tranchee depuis l'UI");
+                        if let Some(connectors) = crate::connectors::global() {
+                            connectors.resolve_approval(id, approve);
+                        }
                     }
                     Ok(ClientEvent::ResolveJudgement { id, approve }) => {
                         tracing::info!(id, approve, "confirmation du juge tranchee depuis l'UI");

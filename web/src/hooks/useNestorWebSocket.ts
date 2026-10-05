@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type {
+  ToolApprovalItem,
+  ToolMode,
   ContextInfo,
   TodoItem,
   ClientInfo,
@@ -29,8 +31,21 @@ import { AudioPlayer } from '../audio/audioPlayer';
  * configure cote serveur (cf. `nestord/src/config.rs`), tolerable tant que
  * le daemon n'ecoute que sur 127.0.0.1.
  */
+const TOKEN_STORAGE_KEY = 'nestor_token';
+
+/** Jeton saisi dans l'ecran Reglages (memorise dans ce navigateur), sinon celui du build. */
+function readAuthToken(): string {
+  try {
+    const stored = window.localStorage.getItem(TOKEN_STORAGE_KEY);
+    if (stored) return stored;
+  } catch {
+    // stockage indisponible (navigation privee...) : on retombe sur le jeton du build
+  }
+  return (import.meta.env.VITE_NESTOR_TOKEN as string | undefined) ?? '';
+}
+
 function withAuthToken(url: string): string {
-  const token = import.meta.env.VITE_NESTOR_TOKEN as string | undefined;
+  const token = readAuthToken();
   if (!token) return url;
   const separator = url.includes('?') ? '&' : '?';
   return `${url}${separator}token=${encodeURIComponent(token)}`;
@@ -72,9 +87,11 @@ export function useNestorWebSocket({
   const [clients, setClients] = useState<ClientInfo[]>([]);
   const [telemetry, setTelemetry] = useState<TelemetryInfo | null>(null);
   const [connectors, setConnectors] = useState<ConnectorInfo[]>([]);
+  const [toolApprovals, setToolApprovals] = useState<ToolApprovalItem[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const lastWakeRef = useRef<boolean | null>(null);
   const knownJudgeIdsRef = useRef(new Set<number>());
+  const wasConnectedRef = useRef(false);
   const [voiceMeter, setVoiceMeter] = useState<VoiceMeter>({ rms: 0, vad: 0 });
   const [isSpeakerActive, setIsSpeakerActive] = useState(true);
   const [isBrowserTtsEnabled, setIsBrowserTtsEnabled] = useState(false);
@@ -185,10 +202,12 @@ export function useNestorWebSocket({
 
       ws.onopen = () => {
         setConnectionState('connected');
+        wasConnectedRef.current = true;
         pushActivity('system', 'Connexion au daemon établie');
         // Un daemon redemarre repart de l'identifiant 1 : l'instantane refait la liste.
         knownJudgeIdsRef.current.clear();
         setJudgements([]);
+        setToolApprovals([]);
         // Rejoue la derniere position connue : le backend n'en a pas garde
         // trace d'une session a l'autre (etat en memoire uniquement).
         if (watchedPositionRef.current) {
@@ -296,6 +315,26 @@ export function useNestorWebSocket({
             case 'connectors':
               setConnectors(data.items);
               break;
+
+            case 'tool_approval': {
+              const item: ToolApprovalItem = {
+                id: data.id,
+                server: data.server,
+                tool: data.tool,
+                arguments: data.arguments,
+                timestamp: new Date(data.at_ms),
+              };
+              setToolApprovals((prev) => (prev.some((a) => a.id === item.id) ? prev : [...prev, item]));
+              pushActivity('judge', `Accord demandé : ${data.server} · ${data.tool}`);
+              break;
+            }
+
+            case 'tool_approval_resolved': {
+              const { id, approved } = data;
+              setToolApprovals((prev) => prev.filter((a) => a.id !== id));
+              pushActivity('judge', approved ? 'Écriture externe approuvée' : 'Écriture externe refusée');
+              break;
+            }
 
             case 'settings':
               settingsRef.current = data.settings;
@@ -543,8 +582,14 @@ export function useNestorWebSocket({
         // declencher une reconnexion (sinon on empile les connexions).
         if (socketRef.current !== ws) return;
 
+        // Une seule ligne par coupure, pas une par tentative de reconnexion.
         setConnectionState('disconnected');
-        pushActivity('system', 'Connexion au daemon perdue');
+        if (wasConnectedRef.current) {
+          wasConnectedRef.current = false;
+          pushActivity('system', 'Connexion au daemon perdue');
+        }
+        setClients([]);
+        setToolApprovals([]);
         lastWakeRef.current = null;
         socketRef.current = null;
         if (!isExplicitCloseRef.current && autoReconnect && !isSimulated) {
@@ -679,6 +724,32 @@ export function useNestorWebSocket({
   const completeTodo = useCallback((id: number) => sendEvent({ type: 'todo_complete', id }), [sendEvent]);
   const deleteTodo = useCallback((id: number) => sendEvent({ type: 'todo_delete', id }), [sendEvent]);
 
+  // Jeton d'acces saisi dans les reglages : memorise, puis reconnexion avec ce jeton.
+  const [authToken, setAuthTokenState] = useState(() => readAuthToken());
+  const setAuthToken = useCallback((token: string) => {
+    const trimmed = token.trim();
+    try {
+      if (trimmed) window.localStorage.setItem(TOKEN_STORAGE_KEY, trimmed);
+      else window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+    } catch {
+      // stockage indisponible : le jeton ne vaudra que pour cette connexion
+    }
+    setAuthTokenState(trimmed);
+    // Ferme la connexion en cours : la reconnexion automatique reprend avec le nouveau jeton.
+    if (socketRef.current) socketRef.current.close();
+    else connectRef.current();
+  }, []);
+
+  // Connecteurs : mode d'un outil externe, et accord ou refus d'une ecriture en attente.
+  const setToolMode = useCallback(
+    (server: string, tool: string, mode: ToolMode) => sendEvent({ type: 'set_tool_mode', server, tool, mode }),
+    [sendEvent]
+  );
+  const resolveToolApproval = useCallback(
+    (id: number, approve: boolean) => sendEvent({ type: 'resolve_tool_approval', id, approve }),
+    [sendEvent]
+  );
+
   // Reponse, depuis l'UI, a une confirmation demandee par le juge.
   const resolveJudgement = useCallback(
     (id: number, approve: boolean) => {
@@ -798,5 +869,10 @@ export function useNestorWebSocket({
     clients,
     telemetry,
     connectors,
+    setToolMode,
+    toolApprovals,
+    resolveToolApproval,
+    authToken,
+    setAuthToken,
   };
 }

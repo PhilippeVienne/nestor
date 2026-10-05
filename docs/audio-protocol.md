@@ -217,3 +217,12 @@ Evenements du serveur (envoyes a la connexion, puis a chaque changement) :
 
 Commandes du client : `todo_add` (`title`, `due_at` `AAAA-MM-JJTHH:MM` ou
 `recurrence`), `todo_complete` (`id`), `todo_delete` (`id`).
+
+## Connecteurs externes
+
+Voir `docs/connecteurs.md`. Evenements : `connectors` (chaque serveur avec
+`status`, `detail` et ses outils : `name`, `description`, `mode`, `default_mode`),
+`tool_approval` (`id`, `server`, `tool`, `arguments`, `at_ms`) quand une ecriture
+attend un accord, `tool_approval_resolved` (`id`, `approved`). Commandes :
+`set_tool_mode` (`server`, `tool`, `mode` = `read`/`confirm`/`off`) et
+`resolve_tool_approval` (`id`, `approve`).

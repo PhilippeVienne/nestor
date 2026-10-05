@@ -48,9 +48,12 @@ export function App() {
     clients,
     telemetry,
     connectors,
+    setToolMode,
+    toolApprovals,
+    resolveToolApproval,
+    authToken,
+    setAuthToken,
   } = useNestorWebSocket();
-
-  const pendingJudgement = judgements.find((j) => j.pending);
 
   // Default closed to keep UI clean and spacious; opens smoothly when user wants or tools run
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
@@ -58,13 +61,20 @@ export function App() {
   // Petit ecran : les panneaux des colonnes s'ouvrent dans un tiroir plein ecran.
   const [isDashboardOpen, setIsDashboardOpen] = useState(false);
 
-  // Automatically open console when tools start running if not already open
+  const pendingJudgement = judgements.find((j) => j.pending);
+  // Une decision attend l'utilisateur (accord d'ecriture, confirmation du juge).
+  const needsAnswer = toolApprovals.length > 0 || !!pendingJudgement;
+
+  // La console s'ouvre quand un outil demarre, sauf si une decision attend : son voile
+  // recouvrirait le bandeau de reponse. Dans ce cas elle se referme.
   const runningToolsCount = toolCalls.filter((t) => t.status === 'running').length;
   useEffect(() => {
-    if (runningToolsCount > 0) {
+    if (needsAnswer) {
+      setIsConsoleOpen(false);
+    } else if (runningToolsCount > 0) {
       setIsConsoleOpen(true);
     }
-  }, [runningToolsCount]);
+  }, [runningToolsCount, needsAnswer]);
 
   const leftPanels = (
     <>
@@ -171,6 +181,26 @@ export function App() {
             <ActivityLog activity={activity} />
           </div>
 
+          {/* Ecriture d'un connecteur externe en attente d'accord */}
+          {toolApprovals.map((approval) => (
+            <div
+              key={approval.id}
+              className="shrink-0 z-10 border-t border-amber-500/40 bg-amber-950/40 px-3 sm:px-6 py-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm select-text"
+            >
+              <div className="flex-1 min-w-[220px]">
+                <div className="font-semibold text-amber-200">
+                  {approval.server} veut écrire : <span className="font-mono">{approval.tool}</span>
+                </div>
+                <pre className="mt-1 max-h-28 overflow-auto rounded-lg bg-black/40 p-2 text-[12px] text-slate-200 whitespace-pre-wrap break-words">
+                  {approval.arguments}
+                </pre>
+              </div>
+              <div className="w-full sm:w-[260px]">
+                <JudgeActions id={approval.id} onResolve={resolveToolApproval} />
+              </div>
+            </div>
+          ))}
+
           {/* Confirmation demandee par le juge : visible meme console fermee */}
           {pendingJudgement && (
             <div className="shrink-0 z-10 border-t border-amber-500/40 bg-amber-950/40 px-3 sm:px-6 py-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm select-text">
@@ -249,7 +279,11 @@ export function App() {
           onChange={updateSettings}
           lastInterruptRms={voiceMeter.lastInterruptRms}
           connectors={connectors}
+          onSetToolMode={setToolMode}
           context={context}
+          authToken={authToken}
+          onSetAuthToken={setAuthToken}
+          connected={connectionState === 'connected'}
         />
       </div>
     </div>

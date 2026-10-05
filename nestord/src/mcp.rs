@@ -18,7 +18,24 @@ use crate::ws::AppState;
 
 const PROTOCOL_VERSION: &str = "2025-06-18";
 
-pub async fn mcp_handler(State(state): State<Arc<AppState>>, Json(request): Json<Value>) -> impl IntoResponse {
+pub async fn mcp_handler(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(request): Json<Value>,
+) -> impl IntoResponse {
+    // Meme regle que `/ws` : avec un jeton configure, il est exige ici aussi, car ce
+    // serveur relaie les connecteurs personnels.
+    if let Some(expected) = &state.config.auth_token {
+        let presented = headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "));
+        if presented != Some(expected.as_str()) {
+            tracing::warn!("requete /mcp refusee : jeton manquant ou invalide");
+            return (axum::http::StatusCode::UNAUTHORIZED, "jeton invalide").into_response();
+        }
+    }
+
     // Une notification JSON-RPC n'a pas d'`id` et n'attend pas de reponse.
     let Some(id) = request.get("id").cloned() else {
         return Json(json!({})).into_response();
@@ -34,7 +51,13 @@ pub async fn mcp_handler(State(state): State<Arc<AppState>>, Json(request): Json
             "serverInfo": { "name": "nestor", "version": env!("CARGO_PKG_VERSION") },
         })),
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({ "tools": tool_definitions() })),
+        "tools/list" => {
+            let mut tools = tool_definitions().as_array().cloned().unwrap_or_default();
+            if let Some(connectors) = crate::connectors::global() {
+                tools.extend(connectors.tool_definitions());
+            }
+            Ok(json!({ "tools": tools }))
+        }
         "tools/call" => call_tool(&state, request.get("params")).await,
         other => Err(format!("methode inconnue : {other}")),
     };
@@ -367,7 +390,17 @@ Taches en attente : {pending} (dont {overdue} en retard).",
                 Ok(text_result(format!("Tache #{id} inconnue.")))
             }
         }
-        other => Err(format!("outil inconnu : {other}")),
+        other => {
+            // Outil d'un connecteur externe : relaye par la passerelle, qui applique sa regle.
+            let relayed = match crate::connectors::global() {
+                Some(connectors) => {
+                    let brain = state.brain.clone();
+                    connectors.call(other, arguments, async move |text: String| brain.announce_to_user(&text).await).await
+                }
+                None => None,
+            };
+            relayed.unwrap_or_else(|| Err(format!("outil inconnu : {other}")))
+        }
     }
 }
 
