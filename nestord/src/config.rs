@@ -32,6 +32,7 @@ pub struct Config {
     pub wake: WakeConfig,
     pub wake_word: WakeWordConfig,
     pub turn: TurnConfig,
+    pub barge_in: BargeInConfig,
     pub judge: JudgeConfig,
     /// Jeton partage exige pour se connecter a `/ws` (query `?token=...`).
     /// `NESTORD_AUTH_TOKEN` a priorite. Absent (defaut) : pas de verification,
@@ -50,6 +51,7 @@ impl Default for Config {
             wake: WakeConfig::default(),
             wake_word: WakeWordConfig::default(),
             turn: TurnConfig::default(),
+            barge_in: BargeInConfig::default(),
             judge: JudgeConfig::default(),
             auth_token: None,
         }
@@ -167,6 +169,26 @@ pub fn default_words() -> Vec<String> {
     .collect()
 }
 
+/// Interruption de Nestor a la voix pendant qu'il parle. Le micro n'est plus
+/// ignore pendant la synthese : une parole franche et soutenue coupe la lecture.
+/// Seuils conservateurs, car l'echo de la propre voix de Nestor (haut-parleurs)
+/// ne doit pas l'interrompre ; l'annulation d'echo des clients reste necessaire.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct BargeInConfig {
+    pub voice: bool,
+    /// Probabilite de parole (VAD) exigee pour chaque fenetre de 32 ms.
+    pub threshold: f32,
+    /// Duree de parole continue exigee avant d'interrompre.
+    pub min_speech_ms: u64,
+}
+
+impl Default for BargeInConfig {
+    fn default() -> Self {
+        Self { voice: true, threshold: 0.85, min_speech_ms: 300 }
+    }
+}
+
 /// Detection de fin de tour (Smart Turn) : decide si l'utilisateur a fini sa
 /// phrase au lieu d'attendre un silence fixe. Prototype, desactive par defaut
 /// (`NESTORD_TURN_DETECTION=1` ou `[turn] enabled = true`). Sans le modele
@@ -274,6 +296,10 @@ impl Config {
                 "aucun auth_token configure : /ws accepte toute connexion. Tolerable tant que \
 nestord n'ecoute que sur 127.0.0.1, a definir avant toute exposition reseau plus large (`nestord onboard`)."
             );
+        }
+
+        if let Ok(val) = std::env::var("NESTORD_VOICE_BARGE_IN") {
+            config.barge_in.voice = val != "0" && val.to_ascii_lowercase() != "false";
         }
 
         if let Ok(val) = std::env::var("NESTORD_TURN_DETECTION") {

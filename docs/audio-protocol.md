@@ -88,3 +88,18 @@ pure pour la sortie - a coordonner avant de changer.
 - nestord n'utilise plus `cpal`/`rodio` : uniquement `ort` (ONNX Runtime,
   CUDA) pour Silero VAD et Kokoro, et `whisper-rs` (whisper.cpp, CUDA) pour
   la transcription.
+
+
+## Interruption (barge-in)
+
+- **Manuel** : le client coupe sa lecture puis envoie `{"type":"barge_in"}`.
+- **Vocal** : pendant que Nestor parle, nestord surveille le micro (VAD). Une
+  parole franche et soutenue (`[barge_in] threshold = 0.85`, `min_speech_ms = 300`)
+  coupe la synthese : le serveur emet `{"type":"interrupt"}` et chaque client doit
+  vider sa file de lecture. La parole qui a declenche l'interruption devient le
+  debut de l'enonce suivant. `NESTORD_VOICE_BARGE_IN=0` desactive ce mode.
+- Dans les deux cas, les phrases restantes de la reponse interrompue ne sont plus
+  synthetisees tant qu'un nouveau tour utilisateur n'a pas commence.
+- L'echo de la voix de Nestor ne doit pas l'interrompre : les clients gardent
+  l'annulation d'echo activee (navigateur : `echoCancellation`, Android :
+  `VOICE_COMMUNICATION` + `AcousticEchoCanceler`).

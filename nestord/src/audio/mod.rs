@@ -82,6 +82,7 @@ pub fn spawn(
     tts_rx: mpsc::UnboundedReceiver<String>,
     tts_tx: mpsc::UnboundedSender<String>,
     barge_in_gen: Arc<AtomicU64>,
+    turn_started_gen: Arc<AtomicU64>,
     speaking_until_ms: Arc<AtomicU64>,
     wake_active_until_ms: Arc<AtomicU64>,
     config: Arc<Config>,
@@ -136,6 +137,8 @@ pub fn spawn(
         let events_tx = events_tx.clone();
         let speaking_until_ms = speaking_until_ms.clone();
         let wake_active_until_ms = wake_active_until_ms.clone();
+        let barge_in_gen = barge_in_gen.clone();
+        let turn_started_gen = turn_started_gen.clone();
         let config = config.clone();
         std::thread::spawn(move || {
             if let Err(err) = listen_loop(
@@ -147,6 +150,8 @@ pub fn spawn(
                 &whisper_model,
                 speaking_until_ms,
                 wake_active_until_ms,
+                barge_in_gen,
+                turn_started_gen,
                 config,
             ) {
                 tracing::error!(?err, "pipeline d'ecoute (VAD/STT) interrompu");
@@ -164,6 +169,7 @@ pub fn spawn(
                 tts_rx,
                 &piper_dir,
                 barge_in_gen,
+                turn_started_gen,
                 speaking_until_ms,
                 wake_active_until_ms,
                 config,
@@ -186,6 +192,8 @@ fn listen_loop(
     whisper_model: &std::path::Path,
     speaking_until_ms: Arc<AtomicU64>,
     wake_active_until_ms: Arc<AtomicU64>,
+    barge_in_gen: Arc<AtomicU64>,
+    turn_started_gen: Arc<AtomicU64>,
     config: Arc<Config>,
 ) -> Result<()> {
     let mut vad = vad::SileroVad::load(vad_model).context("chargement Silero VAD")?;
@@ -239,22 +247,64 @@ fn listen_loop(
     let mut frames_received: u64 = 0;
     let mut windows_analyzed: u64 = 0;
     let mut was_suppressing = false;
+    // Parole continue detectee pendant que Nestor parle (candidate a une interruption).
+    let mut barge_buf: Vec<f32> = Vec::new();
+    let mut barge_run_ms: u64 = 0;
 
     while let Some(bytes) = mic_rx.blocking_recv() {
         frames_received += 1;
 
         // Suppression d'echo : tant que la synthese est censee etre en cours de
-        // lecture, on jette l'entree micro et on repart d'un buffer propre.
+        // lecture, on n'ecoute pas pour transcrire. On surveille seulement une
+        // parole franche et soutenue (barge-in vocal), qui coupe la lecture.
         if now_ms() < speaking_until_ms.load(Ordering::SeqCst) {
-            pending.clear();
             speech_buf.clear();
             preroll.clear();
             in_speech = false;
             silence_run_ms = 0;
             speech_run_ms = 0;
             was_suppressing = true;
+
+            if !config.barge_in.voice {
+                pending.clear();
+                continue;
+            }
+
+            pending.extend(pcm16_bytes_to_f32(&bytes));
+            while pending.len() >= VAD_CHUNK_SAMPLES {
+                let window: Vec<f32> = pending.drain(..VAD_CHUNK_SAMPLES).collect();
+                let window_ms = (VAD_CHUNK_SAMPLES as f64 / MIC_SAMPLE_RATE as f64 * 1000.0) as u64;
+                let prob = vad.process(&window).unwrap_or(0.0);
+                if prob >= config.barge_in.threshold {
+                    barge_buf.extend_from_slice(&window);
+                    barge_run_ms += window_ms;
+                } else {
+                    barge_buf.clear();
+                    barge_run_ms = 0;
+                }
+            }
+
+            if barge_run_ms >= config.barge_in.min_speech_ms {
+                tracing::info!(barge_run_ms, "barge-in vocal : Nestor est interrompu");
+                barge_in_gen.fetch_add(1, Ordering::SeqCst);
+                speaking_until_ms.store(0, Ordering::SeqCst);
+                let timeout_ms = config.wake_word.timeout_secs.max(3) * 1000;
+                wake_active_until_ms.store(now_ms() + timeout_ms, Ordering::SeqCst);
+                let _ = events_tx.send(ServerEvent::Interrupt);
+                let _ = events_tx.send(ServerEvent::WakeState { active: true });
+                let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Listening });
+
+                // La parole qui a declenche l'interruption devient le debut de l'enonce.
+                speech_buf = std::mem::take(&mut barge_buf);
+                speech_run_ms = barge_run_ms;
+                barge_run_ms = 0;
+                in_speech = true;
+                was_suppressing = false;
+            }
             continue;
         }
+        barge_buf.clear();
+        barge_run_ms = 0;
 
         // La transcription Whisper est synchrone : pendant qu'elle tourne (et
         // pendant la lecture), les frames s'accumulent dans le channel. A la
@@ -262,6 +312,7 @@ fn listen_loop(
         // l'echo qu'il ne faut pas analyser.
         if was_suppressing {
             was_suppressing = false;
+            pending.clear();
             let mut dropped = 0u32;
             while mic_rx.try_recv().is_ok() {
                 dropped += 1;
@@ -394,6 +445,7 @@ fn listen_loop(
                                     });
                                     let _ = events_tx.send(ServerEvent::WakeState { active: true });
                                     let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Listening });
+                                    turn_started_gen.store(barge_in_gen.load(Ordering::SeqCst), Ordering::SeqCst);
                                     let _ = tts_tx.send(ack_phrase);
                                 }
                                 wake::WakeAction::Command { query } => {
@@ -406,6 +458,7 @@ fn listen_loop(
                                     });
                                     let _ = events_tx.send(ServerEvent::WakeState { active: true });
                                     let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Thinking });
+                                    turn_started_gen.store(barge_in_gen.load(Ordering::SeqCst), Ordering::SeqCst);
                                     brain.send_user_message_from_audio(&query);
                                 }
                                 wake::WakeAction::FollowUp { text: follow_up } => {
@@ -418,6 +471,7 @@ fn listen_loop(
                                     });
                                     let _ = events_tx.send(ServerEvent::WakeState { active: true });
                                     let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Thinking });
+                                    turn_started_gen.store(barge_in_gen.load(Ordering::SeqCst), Ordering::SeqCst);
                                     brain.send_user_message_from_audio(&follow_up);
                                 }
                                 wake::WakeAction::Ignored => {
@@ -462,6 +516,7 @@ fn speak_loop(
     mut tts_rx: mpsc::UnboundedReceiver<String>,
     piper_dir: &std::path::Path,
     barge_in_gen: Arc<AtomicU64>,
+    turn_started_gen: Arc<AtomicU64>,
     speaking_until_ms: Arc<AtomicU64>,
     wake_active_until_ms: Arc<AtomicU64>,
     config: Arc<Config>,
@@ -478,6 +533,13 @@ fn speak_loop(
 
     while let Some(sentence) = tts_rx.blocking_recv() {
         let start_gen = barge_in_gen.load(Ordering::SeqCst);
+
+        // Reponse interrompue (barge-in) : on abandonne ses phrases restantes tant
+        // qu'un nouveau tour utilisateur n'a pas commence.
+        if start_gen != turn_started_gen.load(Ordering::SeqCst) {
+            tracing::debug!(%sentence, "phrase d'une reponse interrompue, ignoree");
+            continue;
+        }
 
         let waveform = match synth.synthesize(&sentence) {
             Ok(w) => w,

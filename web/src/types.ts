@@ -20,6 +20,9 @@ export type ServerEvent =
       status: DaemonStatus;
     }
   | {
+      type: 'interrupt';
+    }
+  | {
       type: 'wake_state';
       active: boolean;
     }

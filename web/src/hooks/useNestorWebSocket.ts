@@ -196,6 +196,11 @@ export function useNestorWebSocket({
               setIsWakeActive(data.active);
               break;
 
+            case 'interrupt':
+              // Interruption vocale detectee par le daemon : on coupe la lecture en cours.
+              audioPlayerRef.current?.stop();
+              break;
+
             case 'audio_levels':
               // If not actively playing or recording locally, use server's levels
               if (!audioRecorderRef.current?.isActive()) {

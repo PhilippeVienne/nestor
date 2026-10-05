@@ -694,6 +694,12 @@ class NestorCallManager private constructor(private val context: Context) {
                     val status = obj.optString("status", "running")
                     eventListener?.onToolCall(id, name, status)
                 }
+                "interrupt" -> {
+                    // Interruption vocale detectee par le daemon : on vide la lecture en cours.
+                    audioTrack?.pause()
+                    audioTrack?.flush()
+                    audioTrack?.play()
+                }
                 "audio_chunk" -> {
                     // Base64 encoded audio
                     val b64 = obj.optString("data", "")

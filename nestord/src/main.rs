@@ -62,6 +62,8 @@ async fn main() -> anyhow::Result<()> {
 
     let (events_tx, _) = broadcast::channel::<ServerEvent>(256);
     let barge_in_gen = Arc::new(AtomicU64::new(0));
+    // Valeur de `barge_in_gen` au debut du dernier tour utilisateur (cf. ws.rs).
+    let turn_started_gen = Arc::new(AtomicU64::new(0));
     let speaking_until_ms = Arc::new(AtomicU64::new(0));
     let usage = Arc::new(usage::UsageState::default());
     let config = Arc::new(config::Config::load());
@@ -107,6 +109,7 @@ async fn main() -> anyhow::Result<()> {
         todos: todos.clone(),
         current_place: Arc::new(std::sync::Mutex::new(None)),
         barge_in_gen: barge_in_gen.clone(),
+        turn_started_gen: turn_started_gen.clone(),
         mic_tx,
         speaking_until_ms: speaking_until_ms.clone(),
         wake_active_until_ms: wake_active_until_ms.clone(),
@@ -150,6 +153,7 @@ async fn main() -> anyhow::Result<()> {
         tts_rx,
         tts_tx,
         barge_in_gen,
+        turn_started_gen,
         speaking_until_ms,
         wake_active_until_ms,
         config.clone(),

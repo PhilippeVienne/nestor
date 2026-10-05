@@ -37,6 +37,9 @@ pub struct AppState {
     /// Compteur incremente a chaque barge-in : le pipeline TTS (feature
     /// `full-audio`) l'observe pour abandonner les segments d'un tour interrompu.
     pub barge_in_gen: Arc<AtomicU64>,
+    /// Valeur de `barge_in_gen` au debut du dernier tour utilisateur : tant que
+    /// `barge_in_gen` la depasse, la reponse interrompue n'est plus synthetisee.
+    pub turn_started_gen: Arc<AtomicU64>,
     /// Audio micro recu du front (frames binaires), transmis au pipeline VAD/STT.
     pub mic_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
     /// Horodatage (epoch ms) jusqu'auquel la synthese est censee etre jouee :
@@ -156,6 +159,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
     let events_tx = state.events_tx.clone();
     let barge_in_gen = state.barge_in_gen.clone();
+    let turn_started_gen = state.turn_started_gen.clone();
     let mic_tx = state.mic_tx.clone();
     let speaking_until_ms = state.speaking_until_ms.clone();
     let wake_active_until_ms = state.wake_active_until_ms.clone();
@@ -200,6 +204,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                             is_final: Some(true),
                         });
                         let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Thinking });
+                        turn_started_gen.store(barge_in_gen.load(Ordering::SeqCst), Ordering::SeqCst);
                         if let Err(err) = brain.send_user_message(&content).await {
                             tracing::error!(?err, "echec d'envoi du message utilisateur");
                         }
