@@ -260,7 +260,9 @@ Annonce ce resultat a l'utilisateur en une ou deux phrases.",
             Backend::Claude => {
                 // `-p` est un booleen et le prompt un argument positionnel ;
                 // `--verbose` est impose avec --output-format stream-json.
-                cmd.args(["--verbose", "-p", description]);
+                // Un sous-agent de mission n'a acces a aucun serveur MCP ni connecteur du compte :
+                // il travaille sur le code, pas sur la messagerie de l'utilisateur.
+                cmd.args(["--verbose", "--strict-mcp-config", "-p", description]);
             }
             Backend::Agy => {
                 // Parsing de flags a la Go : le prompt doit etre attache au

@@ -143,6 +143,10 @@ pub fn spawn(
         "--dangerously-skip-permissions",
         // Requis par le CLI : --output-format stream-json en mode --print impose --verbose.
         "--verbose",
+        // Seul le serveur MCP de nestord est visible : sans cela, les connecteurs attaches au
+        // compte (Gmail, Drive...) seraient utilisables directement, ecritures comprises, sans
+        // passer par la passerelle et sa confirmation (cf. `connectors.rs`).
+        "--strict-mcp-config",
     ]);
     // Personnalite de majordome + contraintes vocales : sans ca, les reponses
     // sont longues et en markdown, donc interminables a l'ecoute.
