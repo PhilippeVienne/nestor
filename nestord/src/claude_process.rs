@@ -156,6 +156,12 @@ pub fn spawn(
         // compte (Gmail, Drive...) seraient utilisables directement, ecritures comprises, sans
         // passer par la passerelle et sa confirmation (cf. `connectors.rs`).
         "--strict-mcp-config",
+        // Sans les reglages ni les consignes personnelles de l'utilisateur (`~/.claude/`) :
+        // elles sont ecrites pour ses sessions de travail au clavier (par exemple « terminer
+        // chaque tour par une question a choix »), pas pour un majordome vocal qui les
+        // reciterait. Les consignes du projet courant restent chargees.
+        "--setting-sources",
+        "project,local",
     ]);
     // Personnalite de majordome + contraintes vocales : sans ca, les reponses
     // sont longues et en markdown, donc interminables a l'ecoute.
