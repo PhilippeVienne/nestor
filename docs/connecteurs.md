@@ -23,15 +23,45 @@ Priorité : choix fait dans l'interface (enregistré dans
 
 ## Jeton obligatoire
 
-Aucun connecteur externe n'est démarré sans jeton d'accès. Sans lui, tout
-processus local pourrait se connecter à `/ws` ou `/mcp` et utiliser ces accès.
+Aucun connecteur externe n'est démarré sans jeton d'accès à `/ws`.
 
 ```bash
-nestord onboard        # génère le jeton, à saisir dans Réglages > Accès au daemon
+nestord onboard        # affiche le jeton UNE fois ; à saisir dans Réglages > Accès au daemon
 ```
 
-Avec un jeton, `/mcp` l'exige aussi (`Authorization: Bearer …`) ; nestord le
-transmet lui-même à l'assistant, dans un fichier lisible par vous seul.
+## Ce que l'assistant ne peut pas faire lui-même
+
+L'assistant exécute des commandes avec vos droits. Les protections suivantes
+visent à ce qu'il ne puisse pas s'accorder ce que vous devez valider
+(`nestord/src/auth.rs`) :
+
+- **Le jeton n'est stocké nulle part en clair.** `~/.config/nestord/auth_token` ne
+  contient que son empreinte SHA-256 : le lire ne donne pas le jeton. Un jeton
+  perdu ne se réaffiche pas, il se remplace (`nestord onboard --rotate`).
+- **`/mcp` a son propre secret**, tiré au hasard à chaque démarrage et remis au
+  seul assistant. Il ouvre les outils, pas `/ws` : il ne permet ni d'approuver
+  une écriture ni de changer un mode ou un réglage.
+- **Les secrets quittent son environnement** : `NESTORD_AUTH_TOKEN` et toutes les
+  variables `${VAR}` citées par les connecteurs sont retirées de l'environnement
+  de l'assistant et des sous-agents.
+- **Origine web vérifiée** : une page d'un autre site ne peut se connecter ni à
+  `/ws` ni à `/mcp`, même sans jeton. Pour une interface servie ailleurs que sur
+  la machine (Tailscale…), déclarer `allowed_origins = ["https://…"]`.
+- **Accord à la voix** : l'annonce dit ce qui va être fait (les premiers
+  arguments de l'appel). Seule une réponse brève et nette compte (« oui », « je
+  confirme », « non », « annule »…) ; toute autre phrase laisse la demande en
+  attente et Nestor redemande. Avec plusieurs demandes en attente, il faut
+  répondre à l'écran.
+- **Règles du juge indépendantes des réglages** : monter les seuils à 100 dans
+  l'interface ne désarme pas les règles fixes.
+
+**Ce qui reste hors de portée de ces protections.** L'assistant tourne sous votre
+compte : il peut lire vos autres fichiers, dont les jetons que les serveurs MCP
+locaux rangent dans votre dossier personnel (`~/.gmail-mcp/…`) et le profil de
+votre navigateur, où l'interface mémorise le jeton. Un assistant manipulé par un
+contenu piégé pourrait donc contourner la passerelle en appelant directement le
+service. Une vraie étanchéité demande de faire tourner l'assistant sous un autre
+compte ou dans un bac à sable ; ce n'est pas fait.
 
 ## Déclarer un serveur
 

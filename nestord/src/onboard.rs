@@ -1,8 +1,9 @@
 //! Commande `nestord onboard` : fournit le jeton d'authentification a saisir
 //! dans l'app mobile (ou le front web) pour se connecter a `/ws`.
 //!
-//! Le jeton est genere une fois, persiste dans `~/.config/nestord/auth_token`
-//! (droits 0600) puis relu par le daemon au demarrage (cf. `Config::load`).
+//! Le jeton est genere puis affiche une seule fois ; seule son empreinte SHA-256
+//! est ecrite dans `~/.config/nestord/auth_token` (droits 0600) et relue par le
+//! daemon au demarrage (cf. `Config::load`) : lire ce fichier ne donne pas le jeton.
 //! `NESTORD_AUTH_TOKEN` et `auth_token` du TOML restent prioritaires.
 
 use std::io::Read;
@@ -21,7 +22,7 @@ fn generate_token() -> Result<String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// Ecrit le jeton avec des droits restreints au proprietaire.
+/// Ecrit l'empreinte du jeton avec des droits restreints au proprietaire.
 fn persist_token(path: &PathBuf, token: &str) -> Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
     use std::io::Write;
@@ -64,19 +65,19 @@ pub fn run(args: &[String]) -> Result<()> {
     }
 
     let path = token_file_path();
-    // `Config::load` couvre l'env, le TOML et le fichier genere precedemment.
-    let configured = Config::load().auth_token;
-    let (token, source) = match configured {
-        Some(token) if !rotate => (token, "jeton existant"),
-        _ => {
-            if std::env::var("NESTORD_AUTH_TOKEN").is_ok_and(|t| !t.trim().is_empty()) {
-                eprintln!("Attention : NESTORD_AUTH_TOKEN est defini et reste prioritaire sur le fichier.");
-            }
-            let token = generate_token()?;
-            persist_token(&path, &token)?;
-            (token, "genere et enregistre")
-        }
-    };
+    // nestord ne conserve que l'empreinte du jeton : un jeton deja cree ne peut plus etre affiche.
+    if Config::load().auth.is_some() && !rotate {
+        println!("Un jeton d'acces est deja configure. nestord n'en garde que l'empreinte : il ne peut");
+        println!("pas etre reaffiche. Pour en creer un nouveau (l'ancien cesse de fonctionner) :");
+        println!("\n  nestord onboard --rotate\n");
+        return Ok(());
+    }
+    if std::env::var("NESTORD_AUTH_TOKEN").is_ok_and(|t| !t.trim().is_empty()) {
+        eprintln!("Attention : NESTORD_AUTH_TOKEN est defini et reste prioritaire sur le fichier.");
+    }
+    let token = generate_token()?;
+    persist_token(&path, &crate::auth::TokenHash::of(&token).to_hex())?;
+    let source = "affiche une seule fois, notez-le";
 
     let url = base_url
         .or_else(|| tailscale_host().map(|h| format!("wss://{h}:8443/ws")))
@@ -85,7 +86,7 @@ pub fn run(args: &[String]) -> Result<()> {
 
     println!("Jeton d'onboarding ({source}) :\n\n  {token}\n");
     println!("URL complete a coller dans l'app mobile :\n\n  {url}{separator}token={token}\n");
-    println!("Fichier : {}", path.display());
+    println!("Empreinte enregistree dans : {}", path.display());
     println!("Redemarrez nestord pour que le jeton soit exige sur /ws.");
     println!("`nestord onboard --rotate` revoque ce jeton et en genere un nouveau.");
     Ok(())

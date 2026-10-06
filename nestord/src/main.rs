@@ -4,6 +4,7 @@
 
 #[cfg(feature = "full-audio")]
 mod audio;
+mod auth;
 mod brain;
 mod claude_process;
 mod config;
@@ -27,7 +28,6 @@ use std::sync::{Arc, OnceLock};
 use axum::routing::{get, post};
 use axum::Router;
 use tokio::sync::broadcast;
-use tower_http::cors::CorsLayer;
 
 #[cfg(not(feature = "full-audio"))]
 use protocol::DaemonStatus;
@@ -38,18 +38,22 @@ const LISTEN_ADDR: &str = "127.0.0.1:8340";
 
 /// Config MCP passee au CLI `claude` : elle pointe vers notre propre serveur
 /// HTTP, d'ou l'obligation d'ecouter avant de spawner le sous-processus.
-fn write_mcp_config(auth_token: Option<&str>) -> anyhow::Result<PathBuf> {
+fn write_mcp_config(mcp_secret: &str) -> anyhow::Result<PathBuf> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
 
     let path = std::env::temp_dir().join("nestord-mcp.json");
-    let mut server = serde_json::json!({ "type": "http", "url": format!("http://{LISTEN_ADDR}/mcp") });
-    // `/mcp` exige le jeton quand il est configure (il relaie les connecteurs personnels).
-    if let Some(token) = auth_token {
-        server["headers"] = serde_json::json!({ "Authorization": format!("Bearer {token}") });
-    }
-    let config = serde_json::json!({ "mcpServers": { "nestor": server } });
-    // Le fichier peut contenir le jeton : lisible par le seul proprietaire.
+    // `/mcp` exige ce secret, tire au hasard a chaque demarrage. Il n'ouvre que les outils :
+    // ni `/ws`, ni l'approbation d'une ecriture (cf. `auth.rs`).
+    let config = serde_json::json!({
+        "mcpServers": {
+            "nestor": {
+                "type": "http",
+                "url": format!("http://{LISTEN_ADDR}/mcp"),
+                "headers": { "Authorization": format!("Bearer {mcp_secret}") },
+            }
+        }
+    });
     let _ = std::fs::remove_file(&path);
     let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)?;
     file.write_all(&serde_json::to_vec_pretty(&config)?)?;
@@ -114,7 +118,11 @@ async fn main() -> anyhow::Result<()> {
 
     let wake_active_until_ms = Arc::new(AtomicU64::new(0));
 
+    let mcp_secret = auth::random_hex(32)?;
+    auth::set_secret_env_vars(connectors::referenced_env_vars(&config.mcp_servers));
+
     let state = Arc::new(AppState {
+        mcp_secret: mcp_secret.clone(),
         events_tx: events_tx.clone(),
         config: config.clone(),
         todos: todos.clone(),
@@ -128,13 +136,12 @@ async fn main() -> anyhow::Result<()> {
         usage: usage.clone(),
         brain: brain.clone(),
     });
-    connectors::init(&config.mcp_servers, config.auth_token.is_some(), events_tx.clone());
+    connectors::init(&config.mcp_servers, config.auth.is_some(), events_tx.clone());
     dashboard::spawn_ticker(events_tx.clone(), config.clone(), state.current_place.clone());
 
     let app = Router::new()
         .route("/ws", get(ws::ws_handler))
         .route("/mcp", post(mcp::mcp_handler))
-        .layer(CorsLayer::permissive())
         .with_state(state);
 
     let addr: SocketAddr = LISTEN_ADDR.parse()?;
@@ -143,7 +150,7 @@ async fn main() -> anyhow::Result<()> {
     let server = tokio::spawn(async move { axum::serve(listener, app).await });
 
     // Le serveur ecoute : le CLI peut maintenant se connecter a notre MCP.
-    let mcp_config = write_mcp_config(config.auth_token.as_deref())?;
+    let mcp_config = write_mcp_config(&mcp_secret)?;
 
     let claude = claude_process::spawn(
         events_tx.clone(),

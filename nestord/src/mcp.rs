@@ -23,17 +23,21 @@ pub async fn mcp_handler(
     headers: axum::http::HeaderMap,
     Json(request): Json<Value>,
 ) -> impl IntoResponse {
-    // Meme regle que `/ws` : avec un jeton configure, il est exige ici aussi, car ce
-    // serveur relaie les connecteurs personnels.
-    if let Some(expected) = &state.config.auth_token {
-        let presented = headers
-            .get(axum::http::header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "));
-        if presented != Some(expected.as_str()) {
-            tracing::warn!("requete /mcp refusee : jeton manquant ou invalide");
-            return (axum::http::StatusCode::UNAUTHORIZED, "jeton invalide").into_response();
-        }
+    // `/mcp` est reserve a l'assistant : il presente le secret tire au demarrage. Une page
+    // web (meme locale) ou un autre programme n'y a pas acces.
+    let origin = headers.get(axum::http::header::ORIGIN).and_then(|v| v.to_str().ok());
+    if !crate::auth::origin_allowed(origin, &state.config.allowed_origins) {
+        tracing::warn!(?origin, "requete /mcp refusee : origine web non autorisee");
+        return (axum::http::StatusCode::FORBIDDEN, "origine non autorisee").into_response();
+    }
+    let presented = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or_default();
+    if !crate::auth::constant_time_eq(presented.as_bytes(), state.mcp_secret.as_bytes()) {
+        tracing::warn!("requete /mcp refusee : secret manquant ou invalide");
+        return (axum::http::StatusCode::UNAUTHORIZED, "secret invalide").into_response();
     }
 
     // Une notification JSON-RPC n'a pas d'`id` et n'attend pas de reponse.

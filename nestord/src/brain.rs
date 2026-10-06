@@ -301,9 +301,27 @@ impl NestorBrain {
         // Une ecriture externe attend un accord : la reponse de l'utilisateur la tranche,
         // elle n'est pas transmise a l'assistant comme une nouvelle demande.
         if let Some(connectors) = crate::connectors::global() {
-            if connectors.has_pending() {
-                connectors.resolve_oldest(is_affirmative(content));
-                return Ok(());
+            match (connectors.pending_count(), classify_answer(content)) {
+                (0, _) => {}
+                // Une seule demande et une reponse nette : on tranche.
+                (1, Some(approve)) => {
+                    connectors.resolve_oldest(approve);
+                    return Ok(());
+                }
+                // Reponse ambigue : ni accord ni refus, la demande reste en attente.
+                (1, None) => {
+                    self.announce_to_user(
+                        "je n'ai pas compris. Dites oui pour confirmer cette action, ou non pour l'annuler.",
+                    )
+                    .await;
+                    return Ok(());
+                }
+                // Plusieurs demandes : un « oui » ne dirait pas laquelle.
+                _ => {
+                    self.announce_to_user("plusieurs actions attendent votre accord : repondez a l'ecran pour chacune.")
+                        .await;
+                    return Ok(());
+                }
             }
         }
 
@@ -433,6 +451,10 @@ impl NestorBrain {
         cmd.args(["--output-format", "stream-json", "--dangerously-skip-permissions"]);
 
         for var in ENV_VARS_TO_SCRUB {
+            cmd.env_remove(var);
+        }
+        // Secrets que l'assistant n'a pas a connaitre : jeton de nestord, identifiants des connecteurs.
+        for var in crate::auth::secret_env_vars() {
             cmd.env_remove(var);
         }
 
@@ -601,14 +623,46 @@ impl TurnState {
     }
 }
 
-/// Detecte une confirmation orale a une question de type "confirmez-vous ?".
-/// Volontairement permissif plutot que de faire attendre {address} un mot
-/// magique precis ; toute reponse ambigue est traitee comme un refus.
+/// Reponse a une demande de confirmation : `Some(true)` pour un accord, `Some(false)`
+/// pour un refus, `None` pour tout le reste.
+///
+/// Seules des reponses breves et sans ambiguite comptent : « ok lance plutot les tests »
+/// n'est pas un accord. La ponctuation et la casse ajoutees par la transcription
+/// (« Oui. ») sont ignorees.
+fn classify_answer(text: &str) -> Option<bool> {
+    let normalized: String = text
+        .chars()
+        .flat_map(char::to_lowercase)
+        .map(|c| match c {
+            'é' | 'è' | 'ê' => 'e',
+            'à' | 'â' => 'a',
+            'ç' => 'c',
+            '\u{2019}' => '\'',
+            c if c.is_alphanumeric() || c == '\'' => c,
+            _ => ' ',
+        })
+        .collect();
+    let normalized = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+    const YES: &[&str] = &[
+        "oui", "oui oui", "oui vas y", "vas y", "oui je confirme", "je confirme", "confirme", "c'est confirme",
+        "d'accord", "oui d'accord", "ok", "okay", "ok vas y", "fais le", "oui fais le", "c'est bon", "approuve",
+        "j'approuve", "oui merci", "oui s'il te plait", "oui s'il vous plait",
+    ];
+    const NO: &[&str] = &[
+        "non", "non non", "non merci", "annule", "annuler", "non annule", "refuse", "je refuse", "stop",
+        "surtout pas", "non surtout pas", "ne fais pas ca", "non ne fais pas ca", "laisse tomber",
+    ];
+    if YES.contains(&normalized.as_str()) {
+        Some(true)
+    } else if NO.contains(&normalized.as_str()) {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 fn is_affirmative(text: &str) -> bool {
-    let normalized = text.trim().to_ascii_lowercase();
-    const PHRASES: &[&str] =
-        &["oui", "vas-y", "vas y", "confirme", "confirmé", "je confirme", "fais-le", "fais le", "d'accord", "ok", "okay"];
-    PHRASES.iter().any(|p| normalized == *p || normalized.starts_with(&format!("{p} ")))
+    classify_answer(text) == Some(true)
 }
 
 fn sanitize_for_tts(raw: &str) -> Option<String> {
@@ -622,4 +676,35 @@ fn sanitize_for_tts(raw: &str) -> Option<String> {
         return None;
     }
     Some(cleaned.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accord_et_refus_nets() {
+        // La transcription ajoute casse et ponctuation.
+        for yes in ["Oui.", "oui", "Oui, vas-y.", "Je confirme.", "D'accord !", "OK", "C’est bon."] {
+            assert_eq!(classify_answer(yes), Some(true), "{yes}");
+        }
+        for no in ["Non.", "Non merci.", "Annule.", "Surtout pas !", "Laisse tomber"] {
+            assert_eq!(classify_answer(no), Some(false), "{no}");
+        }
+    }
+
+    #[test]
+    fn reponse_ambigue_n_est_ni_accord_ni_refus() {
+        for unclear in [
+            "Ok lance plutot les tests.",
+            "Oui mais attends.",
+            "C'est quoi cette action ?",
+            "Confirmez-vous ?",
+            "Non, envoie-le plutot a Marie.",
+            "",
+        ] {
+            assert_eq!(classify_answer(unclear), None, "{unclear}");
+        }
+        assert!(!is_affirmative("ok lance plutot les tests"));
+    }
 }

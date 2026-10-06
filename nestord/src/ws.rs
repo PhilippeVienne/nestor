@@ -26,6 +26,8 @@ fn now_ms() -> u64 {
 
 #[derive(Clone)]
 pub struct AppState {
+    /// Secret exige sur `/mcp`, remis au seul assistant (cf. `auth.rs`).
+    pub mcp_secret: String,
     pub events_tx: tokio::sync::broadcast::Sender<ServerEvent>,
     /// Configuration utilisateur (forme d'adresse, lieux, heures calmes, reveil).
     pub config: Arc<Config>,
@@ -112,8 +114,13 @@ pub async fn ws_handler(
     headers: axum::http::HeaderMap,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    if let Some(expected) = &state.config.auth_token {
-        if auth.token.as_deref() != Some(expected.as_str()) {
+    let origin = headers.get(axum::http::header::ORIGIN).and_then(|v| v.to_str().ok());
+    if !crate::auth::origin_allowed(origin, &state.config.allowed_origins) {
+        tracing::warn!(?origin, "connexion /ws refusee : origine web non autorisee");
+        return (StatusCode::FORBIDDEN, "origine non autorisee").into_response();
+    }
+    if let Some(expected) = &state.config.auth {
+        if !auth.token.as_deref().is_some_and(|token| expected.matches(token)) {
             tracing::warn!("connexion /ws refusee : jeton manquant ou invalide");
             return (StatusCode::UNAUTHORIZED, "jeton invalide").into_response();
         }

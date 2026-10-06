@@ -225,6 +225,9 @@ fn rule_verdict(text: &str) -> Option<Verdict> {
     None
 }
 
+/// Score a partir duquel une regle refuse (en dessous : confirmation).
+const RULE_DENY_SCORE: u8 = 90;
+
 /// Evalue une action (message utilisateur ou description de mission) aupres
 /// du juge Ollama local. En cas d'echec (Ollama injoignable, reponse
 /// inexploitable, timeout), ne laisse PAS passer silencieusement : sans
@@ -238,11 +241,21 @@ pub async fn evaluate(config: &JudgeConfig, intent: &str, action: &str) -> Judge
         return Judgement { decision: Decision::Allow, verdict: None };
     }
 
-    // Dangers evidents : tranches par les regles, sans interroger le modele.
-    let verdict = match rule_verdict(action) {
-        Some(verdict) => Ok(verdict),
-        None => query_ollama(config, intent, action).await,
-    };
+    // Dangers evidents : tranches par les regles, sans interroger le modele et sans
+    // dependre des seuils reglables dans l'UI (les regler a 100 ne desarme pas les regles).
+    if let Some(verdict) = rule_verdict(action) {
+        let decision = if verdict.risk_score >= RULE_DENY_SCORE { Decision::Deny } else { Decision::Confirm };
+        tracing::warn!(
+            score = verdict.risk_score,
+            category = %verdict.category,
+            rationale = %verdict.rationale,
+            ?decision,
+            "juge de conscience : action retenue par une regle"
+        );
+        return Judgement { decision, verdict: Some(verdict) };
+    }
+
+    let verdict = query_ollama(config, intent, action).await;
 
     match verdict {
         Ok(verdict) => {
@@ -601,6 +614,16 @@ mod tests {
             let v = rule_verdict(msg).unwrap_or_else(|| panic!("danger non retenu : {msg}"));
             assert!(v.risk_score >= config.reject_threshold, "danger seulement confirme : {msg}");
         }
+    }
+
+    #[tokio::test]
+    async fn regles_insensibles_aux_seuils_regles_dans_l_ui() {
+        // Seuils au maximum : le modele ne retiendrait plus rien, les regles si.
+        let config = JudgeConfig { confirm_threshold: 100, reject_threshold: 100, ..JudgeConfig::default() };
+        let deny = evaluate(&config, "x", "Supprime tout le dossier du projet avec rm -rf.").await;
+        assert_eq!(deny.decision, Decision::Deny);
+        let confirm = evaluate(&config, "x", "Installe un paquet systeme avec apt.").await;
+        assert_eq!(confirm.decision, Decision::Confirm);
     }
 
     #[test]

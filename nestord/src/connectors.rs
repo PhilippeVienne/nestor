@@ -101,6 +101,26 @@ fn expand_env(raw: &str) -> String {
     out
 }
 
+/// Noms des variables `${VAR}` citees dans la configuration des connecteurs : elles
+/// portent des secrets, a retirer de l'environnement de l'assistant.
+pub fn referenced_env_vars(configs: &[McpServerConfig]) -> Vec<String> {
+    let mut vars = Vec::new();
+    for config in configs {
+        let values = config.env.values().chain(config.headers.values()).chain(config.url.iter());
+        for value in values {
+            let mut rest = value.as_str();
+            while let Some(start) = rest.find("${") {
+                let Some(end) = rest[start + 2..].find('}') else { break };
+                vars.push(rest[start + 2..start + 2 + end].to_string());
+                rest = &rest[start + 2 + end + 1..];
+            }
+        }
+    }
+    vars.sort();
+    vars.dedup();
+    vars
+}
+
 /// Nom d'outil accepte par MCP : `[A-Za-z0-9_-]`, 64 caracteres au plus.
 fn sanitize(name: &str) -> String {
     name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect()
@@ -141,7 +161,7 @@ impl Upstream {
         let transport = if let Some(url) = &config.url {
             Transport::Http {
                 client: reqwest::Client::builder().timeout(UPSTREAM_TIMEOUT).build()?,
-                url: url.clone(),
+                url: expand_env(url),
                 headers: config.headers.iter().map(|(k, v)| (k.clone(), expand_env(v))).collect(),
                 session: Mutex::new(None),
             }
@@ -421,11 +441,36 @@ impl Connectors {
             }
             Err(err) => {
                 tracing::warn!(server = %server.config.name, ?err, "connecteur MCP externe en erreur");
-                *server.status.write().unwrap() = Status::Error(format!("{err:#}"));
+                // Le detail est diffuse a tous les clients : l'URL (qui peut porter une cle) en est retiree.
+                let mut detail = format!("{err:#}");
+                if let Some(url) = &server.config.url {
+                    detail = detail.replace(&expand_env(url), "<url du serveur>").replace(url.as_str(), "<url du serveur>");
+                }
+                *server.status.write().unwrap() = Status::Error(detail);
             }
         }
         let _ = self.events_tx.send(self.event());
     }
+}
+
+/// Resume prononcable des arguments d'un appel : les trois premiers, valeurs abregees.
+fn summarize_arguments(arguments: &Value) -> String {
+    let Some(map) = arguments.as_object() else { return String::new() };
+    map.iter()
+        .take(3)
+        .map(|(key, value)| {
+            let text = match value {
+                Value::String(text) => text.clone(),
+                other => other.to_string(),
+            };
+            let mut short: String = text.chars().take(60).collect();
+            if text.chars().count() > 60 {
+                short.push('…');
+            }
+            format!("{} : {short}", key.replace(['_', '-'], " "))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn parse_tools(listing: &Value) -> Vec<RemoteTool> {
@@ -633,9 +678,15 @@ impl Connectors {
         oldest.is_some_and(|id| self.resolve_approval(id, approve))
     }
 
+    /// Nombre d'ecritures en attente de confirmation.
+    pub fn pending_count(&self) -> usize {
+        self.approvals.lock().unwrap().len()
+    }
+
     /// Y a-t-il une ecriture en attente de confirmation ?
+    #[cfg(test)]
     pub fn has_pending(&self) -> bool {
-        !self.approvals.lock().unwrap().is_empty()
+        self.pending_count() > 0
     }
 
     /// Appelle un outil externe en appliquant sa regle. `None` si `exposed` n'est pas un
@@ -674,8 +725,15 @@ impl Connectors {
                 at_ms,
             });
             tracing::info!(server = %name, tool = %tool.name, id, "ecriture externe en attente de confirmation");
-            announce(format!("une action sur {name} attend votre accord : {}. Confirmez-vous ?", tool.name.replace('_', " ")))
-                .await;
+            // L'annonce dit ce qui va etre fait (destinataire, objet...) : un accord donne a la
+            // voix ne doit pas l'etre a l'aveugle.
+            let details = summarize_arguments(&arguments);
+            let action = tool.name.replace(['_', '-'], " ");
+            announce(format!(
+                "une action sur {name} attend votre accord : {action}{}. Dites oui pour confirmer, non pour annuler.",
+                if details.is_empty() { String::new() } else { format!(", {details}") }
+            ))
+            .await;
 
             let approved = match tokio::time::timeout(APPROVAL_TIMEOUT, rx).await {
                 Ok(Ok(approved)) => approved,
@@ -870,6 +928,24 @@ mod tests {
         assert!(gw.call("carnet__lire_notes", json!({}), async |_| {}).await.is_none());
         let ServerEvent::Connectors { items } = gw.event() else { panic!("evenement inattendu") };
         assert_eq!(items[1].status, "disabled");
+    }
+
+    #[test]
+    fn annonce_des_arguments_et_secrets_references() {
+        let args = json!({ "to": "paul@exemple.net", "subject": "Demission", "body": "x".repeat(200), "cc": "marie@exemple.net" });
+        let summary = summarize_arguments(&args);
+        // serde_json trie les cles : body, cc, subject (les trois premieres).
+        assert!(summary.contains("subject : Demission"), "{summary}");
+        assert!(summary.contains('…') && summary.chars().count() < 200, "{summary}");
+        assert_eq!(summarize_arguments(&json!("texte")), "");
+
+        let config = McpServerConfig {
+            url: Some("https://exemple.net/mcp?key=${CLE_URL}".to_string()),
+            headers: HashMap::from([("Authorization".to_string(), "Bearer ${JETON_AGENDA}".to_string())]),
+            env: HashMap::from([("API".to_string(), "${CLE_API}".to_string())]),
+            ..Default::default()
+        };
+        assert_eq!(referenced_env_vars(&[config]), ["CLE_API", "CLE_URL", "JETON_AGENDA"]);
     }
 
     #[test]

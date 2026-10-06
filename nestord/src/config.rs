@@ -42,6 +42,16 @@ pub struct Config {
     /// avant toute exposition au-dela du loopback (VPN, Tailscale...).
     /// `/mcp` n'est jamais concerne : reserve a la boucle locale.
     pub auth_token: Option<String>,
+    /// Empreinte SHA-256 (hexadecimal) du jeton, a preferer a `auth_token` : le fichier de
+    /// configuration ne contient alors pas le jeton lui-meme.
+    pub auth_token_sha256: Option<String>,
+    /// Origines web autorisees en plus de la machine locale (ex. l'interface servie via
+    /// Tailscale : `["https://kanto.exemple.ts.net:8443"]`).
+    pub allowed_origins: Vec<String>,
+    /// Empreinte du jeton effectivement exige (env, TOML ou fichier de `nestord onboard`).
+    /// Le jeton en clair n'est jamais conserve en memoire.
+    #[serde(skip)]
+    pub auth: Option<crate::auth::TokenHash>,
 }
 
 impl Default for Config {
@@ -57,6 +67,9 @@ impl Default for Config {
             mcp_servers: Vec::new(),
             judge: JudgeConfig::default(),
             auth_token: None,
+            auth_token_sha256: None,
+            allowed_origins: Vec::new(),
+            auth: None,
         }
     }
 }
@@ -223,6 +236,39 @@ impl Default for TurnConfig {
     }
 }
 
+/// Determine l'empreinte du jeton exige, par priorite : variable d'environnement,
+/// `auth_token` ou `auth_token_sha256` du TOML, puis fichier de `nestord onboard`.
+/// Le jeton en clair eventuel est efface de la configuration.
+fn resolve_auth(config: &mut Config) -> Option<crate::auth::TokenHash> {
+    use crate::auth::TokenHash;
+
+    let from_toml = config.auth_token.take().map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+    let from_env = std::env::var("NESTORD_AUTH_TOKEN").ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+    if let Some(token) = from_env.or(from_toml) {
+        return Some(TokenHash::of(&token));
+    }
+    if let Some(hash) = config.auth_token_sha256.as_deref().and_then(TokenHash::from_hex) {
+        return Some(hash);
+    }
+
+    let path = token_file_path();
+    let content = std::fs::read_to_string(&path).ok()?;
+    let content = content.trim();
+    if content.is_empty() {
+        return None;
+    }
+    if let Some(hash) = TokenHash::from_hex(content) {
+        return Some(hash);
+    }
+    // Ancien format : le jeton en clair. On ne garde que son empreinte.
+    let hash = TokenHash::of(content);
+    match std::fs::write(&path, format!("{}\n", hash.to_hex())) {
+        Ok(()) => tracing::info!(path = %path.display(), "jeton en clair remplace par son empreinte"),
+        Err(err) => tracing::warn!(?err, "impossible de remplacer le jeton en clair par son empreinte"),
+    }
+    Some(hash)
+}
+
 /// Configuration du mot-cle d'activation ("Hey Nestor").
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
@@ -286,26 +332,11 @@ impl Config {
             }
         }
 
-        if let Ok(token) = std::env::var("NESTORD_AUTH_TOKEN") {
-            let token = token.trim().to_string();
-            if !token.is_empty() {
-                config.auth_token = Some(token);
-            }
-        }
-
-        if config.auth_token.is_none() {
-            if let Ok(file) = std::fs::read_to_string(token_file_path()) {
-                let token = file.trim().to_string();
-                if !token.is_empty() {
-                    config.auth_token = Some(token);
-                }
-            }
-        }
-
-        if config.auth_token.is_none() {
+        config.auth = resolve_auth(&mut config);
+        if config.auth.is_none() {
             tracing::warn!(
-                "aucun auth_token configure : /ws accepte toute connexion. Tolerable tant que \
-nestord n'ecoute que sur 127.0.0.1, a definir avant toute exposition reseau plus large (`nestord onboard`)."
+                "aucun jeton d'acces configure : /ws accepte toute connexion venant de cette machine. \
+A definir avant toute exposition reseau, et requis pour les connecteurs externes (`nestord onboard`)."
             );
         }
 

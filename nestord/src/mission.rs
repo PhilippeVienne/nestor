@@ -274,6 +274,10 @@ Annonce ce resultat a l'utilisateur en une ou deux phrases.",
         for var in ENV_VARS_TO_SCRUB {
             cmd.env_remove(var);
         }
+        // Secrets que l'assistant n'a pas a connaitre : jeton de nestord, identifiants des connecteurs.
+        for var in crate::auth::secret_env_vars() {
+            cmd.env_remove(var);
+        }
         cmd.stdin(Stdio::null());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());

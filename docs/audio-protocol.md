@@ -226,3 +226,11 @@ Voir `docs/connecteurs.md`. Evenements : `connectors` (chaque serveur avec
 attend un accord, `tool_approval_resolved` (`id`, `approved`). Commandes :
 `set_tool_mode` (`server`, `tool`, `mode` = `read`/`confirm`/`off`) et
 `resolve_tool_approval` (`id`, `approve`).
+
+## Controle d'acces
+
+- `/ws` : jeton en parametre `?token=` si un jeton est configure (nestord n'en garde
+  que l'empreinte). Une requete portant un en-tete `Origin` qui n'est ni la machine
+  locale ni une origine de `allowed_origins` recoit 403.
+- `/mcp` : `Authorization: Bearer <secret>`, secret tire a chaque demarrage et
+  distinct du jeton de `/ws`. Toujours exige, meme sans jeton configure.
