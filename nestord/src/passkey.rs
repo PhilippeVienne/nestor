@@ -9,8 +9,9 @@
 //!    (`/auth/login/*`) et recoit un jeton de session, valable pour `/ws`.
 //!
 //! La cle privee ne quitte jamais l'authentificateur de l'utilisateur ; nestord ne
-//! stocke que des cles publiques (`~/.config/nestord/passkeys.json`). Les jetons de
-//! session ne vivent qu'en memoire : un redemarrage du daemon redemande la passkey.
+//! stocke que des cles publiques (`~/.config/nestord/passkeys.json`). Les sessions
+//! survivent a un redemarrage : `sessions.json` garde l'empreinte de chaque jeton
+//! de session et son expiration, jamais le jeton lui-meme.
 //!
 //! Une passkey est liee a un nom de domaine : l'interface doit etre ouverte sur
 //! `http://localhost:…` ou sur un nom de domaine en HTTPS, pas sur une adresse IP.
@@ -60,8 +61,10 @@ pub struct PasskeyAuth {
     enroll_path: PathBuf,
     store: Mutex<StoreFile>,
     ceremonies: Mutex<HashMap<String, (Instant, Ceremony)>>,
-    /// Empreinte du jeton de session -> expiration.
-    sessions: Mutex<HashMap<[u8; 32], Instant>>,
+    sessions_path: PathBuf,
+    /// Empreinte (hexadecimale) du jeton de session -> expiration (epoch ms). Enregistre sur
+    /// disque pour survivre a un redemarrage : le fichier ne contient aucun jeton utilisable.
+    sessions: Mutex<HashMap<String, u64>>,
 }
 
 /// Erreur renvoyee a l'interface : code HTTP et message lisible.
@@ -109,6 +112,11 @@ pub fn create_enroll_code() -> Result<String> {
     Ok(code)
 }
 
+/// Cle d'une session dans le registre : l'empreinte SHA-256 du jeton, jamais le jeton.
+fn session_key(token: &str) -> String {
+    Sha256::digest(token.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Construit le verificateur WebAuthn pour l'origine de la page. Le domaine de la
 /// page devient l'identifiant de partie de confiance (RP ID) de la passkey.
 fn webauthn_for(origin: &str) -> Result<(Webauthn, String), AuthError> {
@@ -138,12 +146,21 @@ impl PasskeyAuth {
         if store.user_id.len() != 32 {
             store.user_id = random_hex(16).unwrap_or_else(|_| "0".repeat(32));
         }
+        // Sessions encore valides d'un lancement precedent.
+        let sessions_path = store_path.with_file_name("sessions.json");
+        let now = now_ms();
+        let mut sessions: HashMap<String, u64> = std::fs::read_to_string(&sessions_path)
+            .ok()
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_default();
+        sessions.retain(|_, expires| *expires > now);
         Arc::new(Self {
             store_path,
             enroll_path,
             store: Mutex::new(store),
             ceremonies: Mutex::new(HashMap::new()),
-            sessions: Mutex::new(HashMap::new()),
+            sessions_path,
+            sessions: Mutex::new(sessions),
         })
     }
 
@@ -206,16 +223,32 @@ impl PasskeyAuth {
     fn open_session(&self) -> Result<String, AuthError> {
         let token = random_hex(32).map_err(|_| AuthError::new(500, "alea indisponible"))?;
         let mut sessions = self.sessions.lock().unwrap();
-        let now = Instant::now();
+        let now = now_ms();
         sessions.retain(|_, expires| *expires > now);
-        sessions.insert(Sha256::digest(token.as_bytes()).into(), now + SESSION_TTL);
+        sessions.insert(session_key(&token), now + SESSION_TTL.as_millis() as u64);
+        let saved = serde_json::to_vec(&*sessions).map_err(anyhow::Error::from).and_then(|bytes| write_private(&self.sessions_path, &bytes));
+        if let Err(err) = saved {
+            tracing::warn!(?err, "session ouverte mais non enregistree : elle ne survivra pas a un redemarrage");
+        }
         Ok(token)
+    }
+
+    /// Ferme une session (bouton « Se deconnecter ») : son jeton cesse d'etre accepte.
+    pub fn close_session(&self, token: &str) -> bool {
+        let mut sessions = self.sessions.lock().unwrap();
+        let removed = sessions.remove(&session_key(token)).is_some();
+        if removed {
+            let saved = serde_json::to_vec(&*sessions).map_err(anyhow::Error::from).and_then(|bytes| write_private(&self.sessions_path, &bytes));
+            if let Err(err) = saved {
+                tracing::warn!(?err, "session fermee mais registre non enregistre");
+            }
+        }
+        removed
     }
 
     /// Le jeton presente est-il une session ouverte par passkey ?
     pub fn session_valid(&self, token: &str) -> bool {
-        let digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-        self.sessions.lock().unwrap().get(&digest).is_some_and(|expires| *expires > Instant::now())
+        self.sessions.lock().unwrap().get(&session_key(token)).is_some_and(|expires| *expires > now_ms())
     }
 
     /// Etat pour l'interface : y a-t-il une passkey pour ce domaine, un enrolement est-il possible ?
@@ -428,6 +461,17 @@ pub async fn login_options_handler(State(state): State<Arc<AppState>>, headers: 
     }
 }
 
+/// Ferme la session dont le jeton est presente : seul son detenteur peut la fermer.
+pub async fn logout_handler(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    if let Err(response) = page_origin(&headers, &state) {
+        return response;
+    }
+    match passkeys() {
+        Ok(passkeys) => Json(json!({ "closed": passkeys.close_session(text(&body, "token")) })).into_response(),
+        Err(response) => response,
+    }
+}
+
 pub async fn login_finish_handler(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
     let origin = match page_origin(&headers, &state) {
         Ok(origin) => origin,
@@ -497,10 +541,22 @@ mod tests {
         assert!(!dir.join("enroll_code").exists());
         assert!(auth.register_options(ORIGIN, &code).is_err());
 
-        // La passkey survit a un redemarrage du daemon ; les sessions, non.
+        // La passkey et la session survivent a un redemarrage du daemon.
         let reloaded = PasskeyAuth::load_from(dir.join("passkeys.json"), dir.join("enroll_code"));
         assert!(reloaded.has_any());
+        assert!(reloaded.session_valid(&session));
+        assert!(!reloaded.session_valid("jeton-invente"));
+        // Le fichier des sessions ne contient pas le jeton, seulement son empreinte.
+        let saved = std::fs::read_to_string(dir.join("sessions.json")).unwrap();
+        assert!(!saved.contains(&session) && saved.contains(&session_key(&session)));
+        // Une session fermee n'est plus acceptee, y compris apres redemarrage.
+        assert!(reloaded.close_session(&session));
         assert!(!reloaded.session_valid(&session));
+        assert!(!PasskeyAuth::load_from(dir.join("passkeys.json"), dir.join("enroll_code")).session_valid(&session));
+        // Une session expiree n'est pas rechargee.
+        std::fs::write(dir.join("sessions.json"), json!({ session_key(&session): now_ms() - 1 }).to_string()).unwrap();
+        let expired = PasskeyAuth::load_from(dir.join("passkeys.json"), dir.join("enroll_code"));
+        assert!(!expired.session_valid(&session));
         let again = login(&reloaded, &mut device, ORIGIN).ok().expect("connexion");
         assert!(reloaded.session_valid(&again));
         let _ = std::fs::remove_dir_all(&dir);

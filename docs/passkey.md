@@ -32,10 +32,10 @@ reste accepté, par le lien « Utiliser un jeton d'accès » du même écran.
 
 - La session vaut pour l'onglet (elle survit à un rechargement, pas à la
   fermeture de l'onglet) et 7 jours au plus.
-- Les sessions ne vivent qu'en mémoire : un redémarrage de nestord redemande la
-  passkey (l'interface revient à l'écran de connexion).
-- Réglages > Accès au daemon > « Se déconnecter » efface la session de l'onglet
-  et le jeton mémorisé.
+- Les sessions survivent à un redémarrage de nestord : `~/.config/nestord/sessions.json`
+  garde l'empreinte de chaque jeton de session et son expiration, jamais le jeton.
+- « Se déconnecter » (Réglages > Accès au daemon) ferme aussi la session côté
+  daemon : son jeton n'ouvre plus rien, même s'il a été copié.
 
 ## Contraintes
 
@@ -53,7 +53,8 @@ reste accepté, par le lien « Utiliser un jeton d'accès » du même écran.
 Appelés par la page (CORS limité aux origines acceptées par `/ws`) :
 `GET /auth/status`, `POST /auth/register/options` (`{code}`),
 `POST /auth/register/finish` (`{id, code, credential}`),
-`POST /auth/login/options`, `POST /auth/login/finish` (`{id, credential}`).
+`POST /auth/login/options`, `POST /auth/login/finish` (`{id, credential}`),
+`POST /auth/logout` (`{token}`).
 Les deux `finish` renvoient `{token}`, à passer à `/ws?token=…`.
 
 Vérification WebAuthn : bibliothèque `webauthn-rs` (`nestord/src/passkey.rs`).

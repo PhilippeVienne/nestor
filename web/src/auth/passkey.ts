@@ -188,3 +188,16 @@ export function describeAuthError(error: unknown, step: 'enroll' | 'login'): str
   }
   return step === 'enroll' ? "L'enregistrement de la passkey a échoué." : 'La connexion par passkey a échoué.';
 }
+
+/** Ferme la session cote daemon : son jeton cesse d'etre accepte. Sans effet si le daemon est injoignable. */
+export async function closeSession(base: string, token: string): Promise<void> {
+  try {
+    await fetch(`${base}/auth/logout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+  } catch {
+    // daemon injoignable : la session expirera d'elle-meme
+  }
+}

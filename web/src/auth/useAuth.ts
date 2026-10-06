@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  closeSession,
   daemonHttpBase,
   describeAuthError,
   enrollPasskey,
@@ -178,13 +179,16 @@ export function useAuth(wsUrl: string = DEFAULT_WS_URL) {
 
   /** Efface la session de l'onglet et le jeton memorise, puis revient a l'ecran de connexion. */
   const logout = useCallback(() => {
+    // La session est aussi fermee cote daemon : son jeton ne doit plus rien ouvrir.
+    const held = readCredential();
+    if (held?.kind === 'session') void closeSession(base, held.token);
     clearCredentials();
     heldRef.current = true;
     setCredentialKind(readCredential()?.kind ?? null);
     setError(null);
     setNotice('Vous êtes déconnecté.');
     go('checking');
-  }, [go]);
+  }, [go, base]);
 
   /** Le WebSocket est ouvert : la preuve est acceptee. */
   const onSocketOpen = useCallback(() => {

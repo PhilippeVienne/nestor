@@ -164,6 +164,7 @@ Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) 
         .route("/auth/register/finish", post(passkey::register_finish_handler))
         .route("/auth/login/options", post(passkey::login_options_handler))
         .route("/auth/login/finish", post(passkey::login_finish_handler))
+        .route("/auth/logout", post(passkey::logout_handler))
         .layer(auth_cors);
 
     let app = Router::new()
