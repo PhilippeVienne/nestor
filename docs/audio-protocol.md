@@ -234,3 +234,15 @@ attend un accord, `tool_approval_resolved` (`id`, `approved`). Commandes :
   locale ni une origine de `allowed_origins` recoit 403.
 - `/mcp` : `Authorization: Bearer <secret>`, secret tire a chaque demarrage et
   distinct du jeton de `/ws`. Toujours exige, meme sans jeton configure.
+
+## Transcriptions incoherentes
+
+Sur un son qu'il ne comprend pas, Whisper peut deriver vers une autre langue ou
+boucler sur quelques mots, meme avec la langue forcee. `stt::hallucination_reason`
+ecarte ces transcriptions (lettres etrangeres au francais, meme suite de mots en
+boucle) : rien n'est transmis a l'assistant, et le client recoit
+`{"type":"transcript_rejected","reason":".."}`.
+
+Diagnostic : `NESTORD_DEBUG_AUDIO_DIR=/chemin` enregistre chaque enonce remis a
+Whisper en WAV 16 kHz. Ces fichiers contiennent la voix de l'utilisateur : a
+n'activer que le temps d'un diagnostic.

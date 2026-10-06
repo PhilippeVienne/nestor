@@ -334,6 +334,11 @@ export function useNestorWebSocket({
               setSettings(data.settings);
               break;
 
+            case 'transcript_rejected':
+              pushNotice('Parole non comprise : transcription incohérente, rien n’a été transmis');
+              pushActivity('voice', `Transcription écartée (${data.reason})`);
+              break;
+
             case 'echo_discarded':
               pushNotice('Énoncé écarté : écho de la voix de Nestor');
               pushActivity('voice', `Écho écarté : « ${data.text} »`);

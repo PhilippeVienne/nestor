@@ -215,6 +215,11 @@ fn listen_loop(
     // sur des enonces courts et produit alors de l'anglais invente.
     let stt_lang = std::env::var("NESTORD_STT_LANG").unwrap_or_else(|_| "fr".to_string());
 
+    let debug_audio_dir = std::env::var("NESTORD_DEBUG_AUDIO_DIR").ok().filter(|d| !d.is_empty()).map(PathBuf::from);
+    if let Some(dir) = &debug_audio_dir {
+        tracing::warn!(dir = %dir.display(), "diagnostic audio actif : chaque enonce est enregistre sur disque");
+    }
+
     // Reglages modifiables depuis l'UI, recopies seulement quand ils changent.
     let mut live = crate::settings::get();
     let mut live_version = crate::settings::version();
@@ -535,6 +540,13 @@ fn listen_loop(
                     }
 
                     let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Thinking });
+                    // Diagnostic : garde l'audio exact remis a Whisper (NESTORD_DEBUG_AUDIO_DIR).
+                    if let Some(dir) = &debug_audio_dir {
+                        match stt::dump_wav(dir, &utterance) {
+                            Ok(path) => tracing::debug!(path = %path.display(), "enonce enregistre pour diagnostic"),
+                            Err(err) => tracing::warn!(?err, "enregistrement de diagnostic impossible"),
+                        }
+                    }
                     let stt_started = std::time::Instant::now();
                     let transcription = whisper.transcribe(&utterance, &stt_lang);
                     crate::dashboard::record_stt_ms(stt_started.elapsed().as_millis() as u64);
@@ -543,6 +555,15 @@ fn listen_loop(
                         Ok(text) if !text.trim().is_empty() => {
                             let text = text.trim();
                             let now = now_ms();
+
+                            // Whisper a derive (autre langue, boucle) : on n'envoie pas ce texte a l'assistant.
+                            if let Some(reason) = stt::hallucination_reason(text, &stt_lang) {
+                                tracing::warn!(%text, reason, "transcription ecartee : hallucination probable");
+                                let _ = events_tx.send(ServerEvent::TranscriptRejected { reason: reason.to_string() });
+                                let status = if detector.is_active(now) { DaemonStatus::Listening } else { DaemonStatus::Idle };
+                                let _ = events_tx.send(ServerEvent::State { status });
+                                continue;
+                            }
 
                             // Echo de la propre voix de Nestor : ni dialogue ni reveil.
                             if recent_speech.is_echo(now, text) {

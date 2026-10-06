@@ -99,6 +99,72 @@ impl WhisperStt {
     }
 }
 
+/// Lettres accentuees et ligatures du francais.
+const FRENCH_LETTERS: &str = "àâäçéèêëîïôöùûüÿœæÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸŒÆ";
+
+/// La transcription ressemble-t-elle a une hallucination de Whisper plutot qu'a une phrase ?
+///
+/// Sur un son qu'il ne comprend pas (bruit, audio abime), le modele peut deriver vers une
+/// autre langue ou boucler sur quelques mots, meme avec la langue forcee. Deux signes
+/// suffisent a l'ecarter sans risque pour une vraie phrase :
+/// - en francais, des lettres d'un autre alphabet (« þ », « ð », cyrillique...) ;
+/// - un meme enchainement de mots repete en boucle.
+///
+/// Retourne la raison, ou `None` si la transcription est plausible.
+pub fn hallucination_reason(text: &str, language: &str) -> Option<&'static str> {
+    if language == "fr" {
+        let foreign = text.chars().filter(|c| c.is_alphabetic() && !c.is_ascii() && !FRENCH_LETTERS.contains(*c)).count();
+        if foreign >= 2 {
+            return Some("lettres etrangeres au francais");
+        }
+    }
+
+    let words: Vec<String> = text
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| w.to_lowercase())
+        .collect();
+    if words.len() >= 8 {
+        let mut counts: std::collections::HashMap<(&str, &str), usize> = std::collections::HashMap::new();
+        for pair in words.windows(2) {
+            *counts.entry((pair[0].as_str(), pair[1].as_str())).or_default() += 1;
+        }
+        let top = counts.values().copied().max().unwrap_or(0);
+        // Un meme couple de mots au moins 4 fois, et sur plus du tiers de l'enonce.
+        if top >= 4 && top * 3 >= words.len() {
+            return Some("meme suite de mots repetee en boucle");
+        }
+    }
+    None
+}
+
+/// Enregistre un enonce en WAV (16 kHz mono) pour le diagnostic. Active par
+/// `NESTORD_DEBUG_AUDIO_DIR` ; ces fichiers contiennent la voix de l'utilisateur.
+pub fn dump_wav(dir: &Path, samples: &[f32]) -> Result<std::path::PathBuf> {
+    use std::io::Write;
+    std::fs::create_dir_all(dir)?;
+    let millis = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let path = dir.join(format!("enonce-{millis}.wav"));
+    let data_len = (samples.len() * 2) as u32;
+    let mut file = std::io::BufWriter::new(std::fs::File::create(&path)?);
+    file.write_all(b"RIFF")?;
+    file.write_all(&(36 + data_len).to_le_bytes())?;
+    file.write_all(b"WAVEfmt ")?;
+    file.write_all(&16u32.to_le_bytes())?;
+    file.write_all(&1u16.to_le_bytes())?; // PCM
+    file.write_all(&1u16.to_le_bytes())?; // mono
+    file.write_all(&16_000u32.to_le_bytes())?;
+    file.write_all(&32_000u32.to_le_bytes())?; // octets par seconde
+    file.write_all(&2u16.to_le_bytes())?;
+    file.write_all(&16u16.to_le_bytes())?;
+    file.write_all(b"data")?;
+    file.write_all(&data_len.to_le_bytes())?;
+    for sample in samples {
+        file.write_all(&((sample.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes())?;
+    }
+    Ok(path)
+}
+
 /// Concatene l'amorce integree et le vocabulaire utilisateur eventuel.
 fn build_prompt(vocab_path: &Path) -> String {
     let extra: Vec<String> = match std::fs::read_to_string(vocab_path) {
@@ -131,4 +197,35 @@ fn pad_to_minimum(samples: &[f32]) -> Vec<f32> {
     padded.extend_from_slice(samples);
     padded.resize(MIN_AUDIO_SAMPLES, 0.0);
     padded
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hallucinations_ecartees() {
+        // Les deux transcriptions relevees en session reelle.
+        assert!(hallucination_reason("Búnusar, reis stöðu að hó.", "fr").is_some());
+        let loop_text = "Hvað er þetta er það? ".to_string() + &"Hvað er það? ".repeat(20);
+        assert!(hallucination_reason(&loop_text, "fr").is_some());
+        // Boucle sans lettre etrangere.
+        assert!(hallucination_reason(&"merci beaucoup ".repeat(8), "fr").is_some());
+    }
+
+    #[test]
+    fn vraies_phrases_conservees() {
+        for ok in [
+            "Bonjour, Nestor. Est-ce que cette fois-ci tu comptes en français ?",
+            "Wow!",
+            "Où est le fichier de configuration, s'il te plaît ?",
+            "Non, non, non, ce n'est pas ça que je voulais dire.",
+            "Lance les tests, puis relance les tests si les tests échouent.",
+            "Écris à Jürgen Müller.",
+        ] {
+            assert_eq!(hallucination_reason(ok, "fr"), None, "{ok}");
+        }
+        // Dans une autre langue, seules les boucles sont ecartees.
+        assert_eq!(hallucination_reason("Hvað er þetta?", "is"), None);
+    }
 }

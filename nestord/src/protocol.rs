@@ -98,6 +98,11 @@ pub enum ServerEvent {
         id: u64,
         approved: bool,
     },
+    /// Transcription ecartee car manifestement incoherente (hallucination de Whisper).
+    #[cfg_attr(not(feature = "full-audio"), allow(dead_code))]
+    TranscriptRejected {
+        reason: String,
+    },
     /// Reglages courants (ecran « Reglages ») : a la connexion et a chaque changement.
     Settings {
         settings: crate::settings::Settings,

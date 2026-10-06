@@ -153,6 +153,10 @@ export type ServerEvent =
       text: string;
     }
   | {
+      type: 'transcript_rejected';
+      reason: string;
+    }
+  | {
       type: 'settings';
       settings: NestorSettings;
     }
