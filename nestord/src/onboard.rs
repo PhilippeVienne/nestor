@@ -54,14 +54,22 @@ fn tailscale_host() -> Option<String> {
 /// Point d'entree : `nestord onboard [--rotate] [--url <wss://hote[:port]/ws>]`.
 pub fn run(args: &[String]) -> Result<()> {
     let mut rotate = false;
+    let mut passkey = false;
+    let mut ui_url: Option<String> = None;
     let mut base_url: Option<String> = None;
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--rotate" => rotate = true,
+            "--passkey" => passkey = true,
+            "--ui" => ui_url = iter.next().cloned(),
             "--url" => base_url = iter.next().cloned(),
-            other => anyhow::bail!("option inconnue : {other} (attendu : --rotate, --url <url>)"),
+            other => anyhow::bail!("option inconnue : {other} (attendu : --passkey, --ui <url>, --rotate, --url <url>)"),
         }
+    }
+
+    if passkey {
+        return onboard_passkey(ui_url);
     }
 
     let path = token_file_path();
@@ -89,5 +97,21 @@ pub fn run(args: &[String]) -> Result<()> {
     println!("Empreinte enregistree dans : {}", path.display());
     println!("Redemarrez nestord pour que le jeton soit exige sur /ws.");
     println!("`nestord onboard --rotate` revoque ce jeton et en genere un nouveau.");
+    Ok(())
+}
+
+/// `nestord onboard --passkey [--ui <url>]` : lien d'enrolement d'une passkey pour l'interface web.
+fn onboard_passkey(ui_url: Option<String>) -> Result<()> {
+    let ui = ui_url.unwrap_or_else(|| Config::load().ui_url);
+    let ui = ui.trim_end_matches('/');
+    let code = crate::passkey::create_enroll_code()?;
+    let minutes = crate::passkey::ENROLL_TTL.as_secs() / 60;
+
+    println!("Lien d'enrolement d'une passkey (valable {minutes} minutes, utilisable une seule fois) :\n");
+    println!("  {ui}/?enroll={code}\n");
+    println!("Ouvrez-le dans le navigateur a equiper, puis suivez l'invite de creation de la passkey.");
+    println!("Des qu'une passkey est enregistree, l'interface doit s'authentifier pour se connecter.");
+    println!("Une passkey est liee a un nom de domaine : `localhost` ou une adresse en HTTPS, pas une adresse IP.");
+    println!("Autre adresse d'interface : `nestord onboard --passkey --ui https://mon-adresse`.");
     Ok(())
 }

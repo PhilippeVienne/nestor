@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import { useNestorWebSocket } from './hooks/useNestorWebSocket';
+import { useNestorWebSocket, DEFAULT_WS_URL } from './hooks/useNestorWebSocket';
+import { AuthGate } from './components/AuthGate';
 import { OrbCanvas } from './components/OrbCanvas';
 import { DialogueStream } from './components/DialogueStream';
 import { ToolConsole } from './components/ToolConsole';
@@ -53,6 +54,7 @@ export function App() {
     resolveToolApproval,
     authToken,
     setAuthToken,
+    setSessionToken,
   } = useNestorWebSocket();
 
   // Default closed to keep UI clean and spacious; opens smoothly when user wants or tools run
@@ -121,6 +123,9 @@ export function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenDashboard={() => setIsDashboardOpen(true)}
       />
+
+      {/* Enrolement et connexion par passkey */}
+      <AuthGate wsUrl={DEFAULT_WS_URL} connectionState={connectionState} onSession={setSessionToken} />
 
       {/* Main Workspace Body */}
       <div className="flex-1 flex overflow-hidden relative">

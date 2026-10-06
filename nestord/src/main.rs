@@ -14,6 +14,7 @@ mod judge;
 mod mcp;
 mod mission;
 mod onboard;
+mod passkey;
 mod protocol;
 mod settings;
 mod todo;
@@ -82,6 +83,7 @@ async fn main() -> anyhow::Result<()> {
     let usage = Arc::new(usage::UsageState::default());
     let config = Arc::new(config::Config::load());
     settings::init(&config);
+    passkey::init();
     judge::spawn_warmup(settings::get().judge_config(&config.judge));
     let todos = Arc::new(todo::TodoStore::open_default()?);
 
@@ -136,12 +138,30 @@ async fn main() -> anyhow::Result<()> {
         usage: usage.clone(),
         brain: brain.clone(),
     });
-    connectors::init(&config.mcp_servers, config.auth.is_some(), events_tx.clone());
+    connectors::init(&config.mcp_servers, config.auth.is_some() || passkey::has_any(), events_tx.clone());
     dashboard::spawn_ticker(events_tx.clone(), config.clone(), state.current_place.clone());
+
+    // Les points d'acces de connexion par passkey sont appeles par la page de l'interface
+    // (autre port, donc autre origine) : CORS limite aux origines que `/ws` accepte.
+    let allowed_origins = config.allowed_origins.clone();
+    let auth_cors = tower_http::cors::CorsLayer::new()
+        .allow_origin(tower_http::cors::AllowOrigin::predicate(move |origin, _| {
+            auth::origin_allowed(origin.to_str().ok(), &allowed_origins)
+        }))
+        .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
+        .allow_headers([axum::http::header::CONTENT_TYPE]);
+    let auth_routes = Router::new()
+        .route("/auth/status", get(passkey::status_handler))
+        .route("/auth/register/options", post(passkey::register_options_handler))
+        .route("/auth/register/finish", post(passkey::register_finish_handler))
+        .route("/auth/login/options", post(passkey::login_options_handler))
+        .route("/auth/login/finish", post(passkey::login_finish_handler))
+        .layer(auth_cors);
 
     let app = Router::new()
         .route("/ws", get(ws::ws_handler))
         .route("/mcp", post(mcp::mcp_handler))
+        .merge(auth_routes)
         .with_state(state);
 
     let addr: SocketAddr = LISTEN_ADDR.parse()?;

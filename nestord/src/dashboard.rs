@@ -75,7 +75,7 @@ pub fn context_event(config: &Config, current_place: &Mutex<Option<String>>) -> 
         quiet_start: config.quiet_hours.start.clone(),
         quiet_end: config.quiet_hours.end.clone(),
         quiet_active: config.quiet_hours.contains(chrono::Local::now().time()),
-        auth_required: config.auth.is_some(),
+        auth_required: config.auth.is_some() || crate::passkey::has_any(),
     }
 }
 

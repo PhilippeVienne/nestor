@@ -48,6 +48,10 @@ pub struct Config {
     /// Origines web autorisees en plus de la machine locale (ex. l'interface servie via
     /// Tailscale : `["https://kanto.exemple.ts.net:8443"]`).
     pub allowed_origins: Vec<String>,
+    /// Adresse de l'interface web, pour le lien d'enrolement d'une passkey
+    /// (`nestord onboard --passkey`). Un nom de domaine est obligatoire : `localhost`
+    /// ou une adresse en HTTPS, jamais une adresse IP.
+    pub ui_url: String,
     /// Empreinte du jeton effectivement exige (env, TOML ou fichier de `nestord onboard`).
     /// Le jeton en clair n'est jamais conserve en memoire.
     #[serde(skip)]
@@ -69,6 +73,7 @@ impl Default for Config {
             auth_token: None,
             auth_token_sha256: None,
             allowed_origins: Vec::new(),
+            ui_url: "http://localhost:5173".to_string(),
             auth: None,
         }
     }

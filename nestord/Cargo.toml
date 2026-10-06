@@ -22,6 +22,8 @@ toml = "1.1.6"
 tower-http = { version = "0.7.1", features = ["cors"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.8"
+webauthn-rs = "0.5.5"
 whisper-rs = { version = "0.16.0", features = ["cuda"], optional = true }
 
 [features]
@@ -32,3 +34,6 @@ default = ["full-audio"]
 # Desactive par defaut pour permettre de builder/tester le daemon (subprocess claude + WebSocket)
 # sans dependre de CUDA sur toutes les machines.
 full-audio = ["dep:ort", "dep:whisper-rs"]
+
+[dev-dependencies]
+webauthn-authenticator-rs = { version = "0.5", features = ["softpasskey"] }

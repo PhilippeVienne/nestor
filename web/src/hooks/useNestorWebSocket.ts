@@ -33,9 +33,19 @@ import { AudioPlayer } from '../audio/audioPlayer';
  */
 const TOKEN_STORAGE_KEY = 'nestor_token';
 
-/** Jeton saisi dans l'ecran Reglages (memorise dans ce navigateur), sinon celui du build. */
+const SESSION_STORAGE_KEY = 'nestor_session';
+
+/** Adresse par defaut du daemon. */
+export const DEFAULT_WS_URL = 'ws://127.0.0.1:8340/ws';
+
+/**
+ * Jeton presente au daemon, par priorite : session ouverte par passkey (onglet en
+ * cours), jeton saisi dans l'ecran Reglages (memorise dans ce navigateur), jeton du build.
+ */
 function readAuthToken(): string {
   try {
+    const session = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
+    if (session) return session;
     const stored = window.localStorage.getItem(TOKEN_STORAGE_KEY);
     if (stored) return stored;
   } catch {
@@ -58,7 +68,7 @@ interface UseNestorWebSocketOptions {
 }
 
 export function useNestorWebSocket({
-  url = 'ws://127.0.0.1:8340/ws',
+  url = DEFAULT_WS_URL,
   autoReconnect = true,
   reconnectInterval = 2000,
 }: UseNestorWebSocketOptions = {}) {
@@ -740,6 +750,17 @@ export function useNestorWebSocket({
     else connectRef.current();
   }, []);
 
+  // Session ouverte par passkey : memorisee pour l'onglet, puis reconnexion.
+  const setSessionToken = useCallback((token: string) => {
+    try {
+      window.sessionStorage.setItem(SESSION_STORAGE_KEY, token);
+    } catch {
+      // stockage indisponible : la session ne vaudra que jusqu'au rechargement
+    }
+    if (socketRef.current) socketRef.current.close();
+    else connectRef.current();
+  }, []);
+
   // Connecteurs : mode d'un outil externe, et accord ou refus d'une ecriture en attente.
   const setToolMode = useCallback(
     (server: string, tool: string, mode: ToolMode) => sendEvent({ type: 'set_tool_mode', server, tool, mode }),
@@ -874,5 +895,6 @@ export function useNestorWebSocket({
     resolveToolApproval,
     authToken,
     setAuthToken,
+    setSessionToken,
   };
 }

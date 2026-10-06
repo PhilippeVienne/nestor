@@ -119,10 +119,14 @@ pub async fn ws_handler(
         tracing::warn!(?origin, "connexion /ws refusee : origine web non autorisee");
         return (StatusCode::FORBIDDEN, "origine non autorisee").into_response();
     }
-    if let Some(expected) = &state.config.auth {
-        if !auth.token.as_deref().is_some_and(|token| expected.matches(token)) {
-            tracing::warn!("connexion /ws refusee : jeton manquant ou invalide");
-            return (StatusCode::UNAUTHORIZED, "jeton invalide").into_response();
+    // Acces protege des qu'un jeton est configure ou qu'une passkey est enregistree. Deux
+    // preuves acceptees : le jeton (application mobile) ou une session ouverte par passkey.
+    if state.config.auth.is_some() || crate::passkey::has_any() {
+        let presented = auth.token.as_deref().unwrap_or_default();
+        let by_token = state.config.auth.as_ref().is_some_and(|expected| expected.matches(presented));
+        if !by_token && !crate::passkey::session_valid(presented) {
+            tracing::warn!("connexion /ws refusee : jeton ou session invalide");
+            return (StatusCode::UNAUTHORIZED, "authentification requise").into_response();
         }
     }
 
