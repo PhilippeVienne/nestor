@@ -338,13 +338,6 @@ impl Config {
         }
 
         config.auth = resolve_auth(&mut config);
-        if config.auth.is_none() {
-            tracing::warn!(
-                "aucun jeton d'acces configure : /ws accepte toute connexion venant de cette machine. \
-A definir avant toute exposition reseau, et requis pour les connecteurs externes (`nestord onboard`)."
-            );
-        }
-
         if let Ok(val) = std::env::var("NESTORD_VOICE_BARGE_IN") {
             config.barge_in.voice = val != "0" && val.to_ascii_lowercase() != "false";
         }

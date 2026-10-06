@@ -41,6 +41,8 @@ const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(60);
 /// Delai accorde a l'utilisateur pour confirmer une ecriture.
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(120);
 const PROTOCOL_VERSION: &str = "2025-06-18";
+/// Delai entre deux tentatives de reconnexion d'un connecteur en erreur.
+const RECONNECT_INTERVAL: Duration = Duration::from_secs(30);
 
 // ---------------------------------------------------------------- configuration
 
@@ -381,6 +383,22 @@ pub fn init(configs: &[McpServerConfig], auth_configured: bool, events_tx: broad
             let connectors = connectors.clone();
             tokio::spawn(async move { connectors.connect(&server).await });
         }
+        // Superviseur : un connecteur en erreur (serveur injoignable au demarrage, processus
+        // mort, session expiree) est reconnecte periodiquement.
+        let supervised = connectors.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(RECONNECT_INTERVAL);
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                for server in supervised.servers.clone() {
+                    if matches!(*server.status.read().unwrap(), Status::Error(_)) {
+                        tracing::info!(server = %server.config.name, "nouvelle tentative de connexion au connecteur");
+                        supervised.connect(&server).await;
+                    }
+                }
+            }
+        });
     }
     let _ = GLOBAL.set(connectors);
 }
@@ -436,7 +454,7 @@ impl Connectors {
         match outcome {
             Ok((upstream, tools)) => {
                 tracing::info!(server = %server.config.name, tools = tools.len(), "connecteur MCP externe connecte");
-                *server.tools.write().unwrap() = tools;
+                *server.tools.write().unwrap() = self.without_collisions(server, tools);
                 *server.upstream.write().unwrap() = Some(Arc::new(upstream));
                 *server.status.write().unwrap() = Status::Connected;
             }
@@ -706,6 +724,12 @@ impl Connectors {
             return Some(Err(format!("l'outil {} de {name} n'est pas autorise", tool.name)));
         }
 
+        // Connecteur hors service : inutile de demander un accord pour un appel qui echouera.
+        let upstream = server.upstream.read().unwrap().clone();
+        let Some(upstream) = upstream.filter(|_| matches!(*server.status.read().unwrap(), Status::Connected)) else {
+            return Some(Err(format!("le connecteur {name} n'est pas connecte pour l'instant")));
+        };
+
         if mode == ToolMode::Confirm {
             let id = self.approval_seq.fetch_add(1, Ordering::SeqCst) + 1;
             let mut shown = serde_json::to_string_pretty(&arguments).unwrap_or_default();
@@ -725,6 +749,9 @@ impl Connectors {
                 arguments: shown,
                 at_ms,
             });
+            // Si l'appel est abandonne (delai, requete coupee par l'assistant), la demande ne
+            // doit pas rester affichee ni avaler la prochaine reponse de l'utilisateur.
+            let _pending = PendingGuard { connectors: self, id };
             tracing::info!(server = %name, tool = %tool.name, id, "ecriture externe en attente de confirmation");
             // L'annonce dit ce qui va etre fait (destinataire, objet...) : un accord donne a la
             // voix ne doit pas l'etre a l'aveugle.
@@ -738,13 +765,8 @@ impl Connectors {
 
             let approved = match tokio::time::timeout(APPROVAL_TIMEOUT, rx).await {
                 Ok(Ok(approved)) => approved,
-                _ => {
-                    // Delai depasse (ou confirmation abandonnee) : refus.
-                    if self.approvals.lock().unwrap().remove(&id).is_some() {
-                        let _ = self.events_tx.send(ServerEvent::ToolApprovalResolved { id, approved: false });
-                    }
-                    false
-                }
+                // Delai depasse : refus (la garde retire la demande).
+                _ => false,
             };
             tracing::info!(server = %name, tool = %tool.name, id, approved, "confirmation d'ecriture externe tranchee");
             if !approved {
@@ -755,17 +777,65 @@ impl Connectors {
             }
         }
 
-        let upstream = server.upstream.read().unwrap().clone();
-        let Some(upstream) = upstream else {
-            return Some(Err(format!("le connecteur {name} n'est pas connecte")));
-        };
         tracing::info!(server = %name, tool = %tool.name, ?mode, "appel d'outil externe relaye");
-        Some(
-            upstream
-                .request("tools/call", json!({ "name": tool.name, "arguments": arguments }))
-                .await
-                .map_err(|err| format!("erreur du connecteur {name} : {err:#}")),
-        )
+        let result = upstream.request("tools/call", json!({ "name": tool.name, "arguments": arguments })).await;
+        if result.is_err() {
+            // Erreur de l'outil, ou serveur tombe ? Un ping tranche ; s'il echoue, le
+            // connecteur est marque hors service et sera reconnecte par le superviseur.
+            let alive = tokio::time::timeout(Duration::from_secs(5), upstream.request("ping", json!({}))).await;
+            if !matches!(alive, Ok(Ok(_))) {
+                self.mark_down(&server, "le serveur ne repond plus");
+            }
+        }
+        Some(result.map_err(|err| format!("erreur du connecteur {name} : {err:#}")))
+    }
+
+    /// Marque un connecteur hors service (il reste liste, ses outils ne sont plus exposes).
+    fn mark_down(&self, server: &Server, reason: &str) {
+        tracing::warn!(server = %server.config.name, reason, "connecteur MCP externe hors service");
+        *server.upstream.write().unwrap() = None;
+        *server.status.write().unwrap() = Status::Error(reason.to_string());
+        let _ = self.events_tx.send(self.event());
+    }
+
+    /// Retire les outils dont le nom expose est deja pris (deux noms qui ne different que par
+    /// un caractere remplace ou par la troncature) : sans cela, l'un masquerait l'autre.
+    fn without_collisions(&self, server: &Server, tools: Vec<RemoteTool>) -> Vec<RemoteTool> {
+        let mut taken: std::collections::HashSet<String> = self
+            .servers
+            .iter()
+            .filter(|other| other.config.name != server.config.name)
+            .flat_map(|other| {
+                let names: Vec<String> =
+                    other.tools.read().unwrap().iter().map(|t| exposed_name(&other.config.name, &t.name)).collect();
+                names
+            })
+            .collect();
+        tools
+            .into_iter()
+            .filter(|tool| {
+                let exposed = exposed_name(&server.config.name, &tool.name);
+                let free = taken.insert(exposed.clone());
+                if !free {
+                    tracing::warn!(server = %server.config.name, tool = %tool.name, %exposed, "outil ignore : nom expose deja pris");
+                }
+                free
+            })
+            .collect()
+    }
+}
+
+/// Retire une demande d'accord encore en attente quand l'appel qui l'a creee se termine.
+struct PendingGuard<'a> {
+    connectors: &'a Connectors,
+    id: u64,
+}
+
+impl Drop for PendingGuard<'_> {
+    fn drop(&mut self) {
+        if self.connectors.approvals.lock().unwrap().remove(&self.id).is_some() {
+            let _ = self.connectors.events_tx.send(ServerEvent::ToolApprovalResolved { id: self.id, approved: false });
+        }
     }
 }
 
@@ -919,6 +989,54 @@ mod tests {
         assert!(saved.contains("ajouter_note") && !saved.contains("inexistant"));
         let _ = std::fs::remove_file(&notes);
         let _ = std::fs::remove_file(notes.with_extension("overrides.toml"));
+    }
+
+    #[tokio::test]
+    async fn connecteur_tombe_puis_reconnecte() {
+        let notes = notes_path("panne");
+        let gw = gateway(&notes, true).await;
+        let server = gw.servers[0].clone();
+
+        // Le serveur tombe : l'echec d'un appel le fait constater.
+        gw.mark_down(&server, "panne simulee");
+        assert!(gw.tool_definitions().is_empty(), "un connecteur hors service n'expose plus d'outils");
+        // Pas de demande d'accord pour un appel voue a l'echec.
+        let call = gw.call("carnet__ajouter_note", json!({ "texte": "x" }), async |_| panic!("pas d'annonce")).await;
+        assert!(call.unwrap().is_err());
+        assert_eq!(gw.pending_count(), 0);
+
+        // Le superviseur le reconnecte (ici, appel direct).
+        gw.connect(&server).await;
+        assert_eq!(gw.tool_definitions().len(), 2);
+        let read = gw.call("carnet__lire_notes", json!({}), async |_| {}).await;
+        assert_eq!(text_of(&read.unwrap().unwrap()), "(carnet vide)");
+    }
+
+    #[tokio::test]
+    async fn demande_retiree_si_l_appel_est_abandonne() {
+        let notes = notes_path("abandon");
+        let gw = gateway(&notes, true).await;
+        // L'assistant coupe sa requete pendant l'attente de l'accord : le futur est abandonne.
+        let abandoned = tokio::time::timeout(
+            Duration::from_millis(200),
+            gw.call("carnet__ajouter_note", json!({ "texte": "x" }), async |_| {}),
+        )
+        .await;
+        assert!(abandoned.is_err(), "l'appel devait rester en attente");
+        assert_eq!(gw.pending_count(), 0, "aucune demande fantome");
+        assert!(gw.pending_events().is_empty());
+        assert!(!notes.exists());
+    }
+
+    #[test]
+    fn collision_de_noms_exposes() {
+        let (events_tx, _) = broadcast::channel(8);
+        let config = McpServerConfig { name: "agenda".to_string(), ..Default::default() };
+        let gw = Connectors::build(&[config], true, events_tx, std::env::temp_dir().join("nestord-test-collision.toml"));
+        let tool = |name: &str| RemoteTool { name: name.to_string(), description: String::new(), input_schema: json!({}), read_only: true };
+        let kept = gw.without_collisions(&gw.servers[0], vec![tool("list.events"), tool("list_events"), tool("get")]);
+        let names: Vec<&str> = kept.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, ["list.events", "get"]);
     }
 
     #[tokio::test]

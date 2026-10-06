@@ -22,10 +22,23 @@ use sonora::{AudioProcessing, Config, StreamConfig};
 pub const FRAME_SAMPLES: usize = 160;
 const SAMPLE_RATE: u32 = 16_000;
 
+/// Duree maximale de reference conservee : au-dela, elle ne correspond plus a ce que
+/// les haut-parleurs jouent.
+const MAX_QUEUE_SAMPLES: usize = SAMPLE_RATE as usize * 30;
+/// Sans consommation depuis ce delai, personne n'ecoute (micro coupe, interruption vocale
+/// desactivee) : la reference accumulee serait perimee au retour du micro.
+const STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
+
+#[derive(Default)]
+struct Queue {
+    samples: VecDeque<f32>,
+    last_pop: Option<std::time::Instant>,
+}
+
 /// File des echantillons (16 kHz) que les clients sont en train de lire.
 #[derive(Default)]
 pub struct Reference {
-    queue: Mutex<VecDeque<f32>>,
+    queue: Mutex<Queue>,
 }
 
 impl Reference {
@@ -34,6 +47,10 @@ impl Reference {
         let ratio = sample_rate as f64 / SAMPLE_RATE as f64;
         let n = (waveform.len() as f64 / ratio) as usize;
         let mut guard = self.queue.lock().unwrap();
+        // Personne ne consomme la reference : ce qui s'y trouve est perime.
+        if guard.last_pop.is_none_or(|at| at.elapsed() > STALE_AFTER) {
+            guard.samples.clear();
+        }
         for i in 0..n {
             // Interpolation lineaire.
             let pos = i as f64 * ratio;
@@ -41,23 +58,31 @@ impl Reference {
             let frac = (pos - idx as f64) as f32;
             let a = waveform[idx];
             let b = *waveform.get(idx + 1).unwrap_or(&a);
-            guard.push_back(a + (b - a) * frac);
+            guard.samples.push_back(a + (b - a) * frac);
         }
+        let excess = guard.samples.len().saturating_sub(MAX_QUEUE_SAMPLES);
+        guard.samples.drain(..excess);
     }
 
     /// Retire une trame de reference (silence si plus rien n'est en cours de lecture).
     pub fn pop_frame(&self) -> [f32; FRAME_SAMPLES] {
         let mut frame = [0f32; FRAME_SAMPLES];
         let mut guard = self.queue.lock().unwrap();
+        guard.last_pop = Some(std::time::Instant::now());
         for s in frame.iter_mut() {
-            *s = guard.pop_front().unwrap_or(0.0);
+            *s = guard.samples.pop_front().unwrap_or(0.0);
         }
         frame
     }
 
     /// Abandonne ce qui reste a lire (interruption, fin de lecture).
     pub fn clear(&self) {
-        self.queue.lock().unwrap().clear();
+        self.queue.lock().unwrap().samples.clear();
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.queue.lock().unwrap().samples.len()
     }
 }
 
@@ -122,6 +147,22 @@ mod tests {
         assert!((r.pop_frame()[0] - 0.5).abs() < 1e-6);
         r.clear();
         assert_eq!(r.pop_frame(), [0f32; FRAME_SAMPLES]);
+    }
+
+    #[test]
+    fn reference_bornee_et_jetee_si_personne_n_ecoute() {
+        let r = Reference::default();
+        // Micro jamais consomme (usage texte seul) : chaque phrase remplace la precedente.
+        for _ in 0..50 {
+            r.push(&vec![0.1; 16_000 * 5], 16_000);
+        }
+        assert_eq!(r.len(), 16_000 * 5);
+        // Micro actif : les phrases s'enchainent, sans depasser la borne.
+        r.pop_frame();
+        for _ in 0..20 {
+            r.push(&vec![0.1; 16_000 * 5], 16_000);
+        }
+        assert_eq!(r.len(), MAX_QUEUE_SAMPLES);
     }
 
     #[test]

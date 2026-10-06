@@ -67,6 +67,9 @@ pub struct NestorBrain {
     /// Dernieres decisions du juge, pour le panneau « Conscience » de l'UI.
     judge_log: Arc<Mutex<VecDeque<JudgeEntry>>>,
     judge_seq: Arc<AtomicU64>,
+    /// Compteur de barge-in et sa valeur au debut du dernier tour (cf. `ws::AppState`).
+    barge_in_gen: Arc<AtomicU64>,
+    turn_started_gen: Arc<AtomicU64>,
 }
 
 /// Nombre de decisions du juge conservees pour l'instantane de connexion.
@@ -107,6 +110,8 @@ impl NestorBrain {
         tts_tx: Option<mpsc::UnboundedSender<String>>,
         usage: Arc<UsageState>,
         config: Arc<Config>,
+        barge_in_gen: Arc<AtomicU64>,
+        turn_started_gen: Arc<AtomicU64>,
     ) -> Self {
         Self {
             claude_handle,
@@ -124,6 +129,8 @@ impl NestorBrain {
             pending_judged_message: Arc::new(Mutex::new(None)),
             judge_log: Arc::new(Mutex::new(VecDeque::new())),
             judge_seq: Arc::new(AtomicU64::new(0)),
+            barge_in_gen,
+            turn_started_gen,
         }
     }
 
@@ -382,7 +389,15 @@ impl NestorBrain {
         self.announce(&format!("{}, {text}", self.config.address_form)).await;
     }
 
+    /// Ouvre un nouveau tour de parole : ce qui va etre dit n'appartient pas a une reponse
+    /// interrompue. Sans cela, apres une interruption non suivie d'un tour utilisateur
+    /// (bouton stop, parole ecartee), comptes rendus et annonces resteraient muets.
+    fn mark_turn_start(&self) {
+        self.turn_started_gen.store(self.barge_in_gen.load(Ordering::SeqCst), Ordering::SeqCst);
+    }
+
     async fn announce(&self, text: &str) {
+        self.mark_turn_start();
         let _ = self.events_tx.send(ServerEvent::Transcript {
             role: Role::Assistant,
             delta: None,
@@ -398,6 +413,7 @@ impl NestorBrain {
     /// actif, avec bascule automatique en cas d'echec. Ne juge rien : c'est
     /// le role des appelants ([`Self::send_user_message`]).
     async fn dispatch(&self, content: &str) -> Result<()> {
+        self.mark_turn_start();
         let backend = *self.active_backend.read().await;
         let is_exhausted = self.usage.is_exhausted();
 

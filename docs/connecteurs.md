@@ -106,7 +106,11 @@ Les secrets passent par des variables d'environnement, pas par le fichier.
   la confirmation des écritures limite les dégâts, elle ne les exclut pas.
 - Serveurs à authentification OAuth interactive : non pris en charge (jeton
   statique en en-tête ou variable d'environnement uniquement).
-- Pas de reconnexion automatique si un serveur externe tombe.
+- Un connecteur en erreur (serveur injoignable, processus mort, session expirée) est
+  retenté toutes les 30 secondes ; entre-temps ses outils ne sont plus exposés. La
+  panne n'est constatée qu'au premier appel qui échoue.
+- Deux outils dont les noms exposés coïncident (`list.events` et `list_events`) : le
+  second est ignoré, avec un avertissement dans les journaux.
 
 ## Essai local
 

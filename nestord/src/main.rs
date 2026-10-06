@@ -84,6 +84,12 @@ async fn main() -> anyhow::Result<()> {
     let config = Arc::new(config::Config::load());
     settings::init(&config);
     passkey::init();
+    if config.auth.is_none() && !passkey::has_any() {
+        tracing::warn!(
+            "aucune authentification configuree : /ws accepte toute connexion venant de cette machine. \
+Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) avant toute exposition reseau."
+        );
+    }
     judge::spawn_warmup(settings::get().judge_config(&config.judge));
     let todos = Arc::new(todo::TodoStore::open_default()?);
 
@@ -105,6 +111,8 @@ async fn main() -> anyhow::Result<()> {
         tts_tx.clone(),
         usage.clone(),
         config.clone(),
+        barge_in_gen.clone(),
+        turn_started_gen.clone(),
     ));
 
     // Audio micro (front -> serveur), en frames binaires PCM16LE. Existe

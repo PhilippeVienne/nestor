@@ -685,6 +685,12 @@ fn speak_loop(
         let playback_start = speaking_until_ms.load(Ordering::SeqCst).max(now_ms());
         let playback_end = playback_start + duration_ms + ECHO_TAIL_MS;
         speaking_until_ms.store(playback_end, Ordering::SeqCst);
+        // Interruption survenue pendant le calcul ci-dessus : on n'envoie pas ce segment et on
+        // ne rouvre pas la fenetre de suppression, qui effacerait la parole qui vient d'interrompre.
+        if barge_in_gen.load(Ordering::SeqCst) != start_gen {
+            speaking_until_ms.store(0, Ordering::SeqCst);
+            continue;
+        }
         wake_active_until_ms.store(playback_end + timeout_ms, Ordering::SeqCst);
 
         crate::dashboard::record_tts_ms(tts_started.elapsed().as_millis() as u64);
