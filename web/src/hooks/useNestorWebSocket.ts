@@ -24,54 +24,34 @@ import type {
 } from '../types';
 import { AudioRecorder } from '../audio/audioRecorder';
 import { AudioPlayer } from '../audio/audioPlayer';
-
-/**
- * Ajoute le jeton d'authentification (`VITE_NESTOR_TOKEN`) en query param.
- * Absent par defaut : nestord n'exige un jeton que si `auth_token` est
- * configure cote serveur (cf. `nestord/src/config.rs`), tolerable tant que
- * le daemon n'ecoute que sur 127.0.0.1.
- */
-const TOKEN_STORAGE_KEY = 'nestor_token';
-
-const SESSION_STORAGE_KEY = 'nestor_session';
-
-/** Adresse par defaut du daemon. */
-export const DEFAULT_WS_URL = 'ws://127.0.0.1:8340/ws';
-
-/**
- * Jeton presente au daemon, par priorite : session ouverte par passkey (onglet en
- * cours), jeton saisi dans l'ecran Reglages (memorise dans ce navigateur), jeton du build.
- */
-function readAuthToken(): string {
-  try {
-    const session = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
-    if (session) return session;
-    const stored = window.localStorage.getItem(TOKEN_STORAGE_KEY);
-    if (stored) return stored;
-  } catch {
-    // stockage indisponible (navigation privee...) : on retombe sur le jeton du build
-  }
-  return (import.meta.env.VITE_NESTOR_TOKEN as string | undefined) ?? '';
-}
-
-function withAuthToken(url: string): string {
-  const token = readAuthToken();
-  if (!token) return url;
-  const separator = url.includes('?') ? '&' : '?';
-  return `${url}${separator}token=${encodeURIComponent(token)}`;
-}
+import { DEFAULT_WS_URL, withCredential } from '../auth/session';
 
 interface UseNestorWebSocketOptions {
   url?: string;
   autoReconnect?: boolean;
   reconnectInterval?: number;
+  /** La connexion est etablie. */
+  onOpen?: () => void;
+  /**
+   * La connexion a ete fermee sans jamais s'ouvrir : daemon injoignable, ou acces
+   * refuse (le navigateur ne dit pas lequel). L'appelant tranche avec `/auth/status`.
+   */
+  onRefused?: () => void;
 }
 
 export function useNestorWebSocket({
   url = DEFAULT_WS_URL,
   autoReconnect = true,
   reconnectInterval = 2000,
+  onOpen,
+  onRefused,
 }: UseNestorWebSocketOptions = {}) {
+  const onOpenRef = useRef(onOpen);
+  const onRefusedRef = useRef(onRefused);
+  useEffect(() => {
+    onOpenRef.current = onOpen;
+    onRefusedRef.current = onRefused;
+  }, [onOpen, onRefused]);
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
   const [status, setStatus] = useState<DaemonStatus>('idle');
   const [audioLevels, setAudioLevels] = useState<AudioLevels>({ rms: 0, peak: 0 });
@@ -206,11 +186,14 @@ export function useNestorWebSocket({
     }
 
     try {
-      const ws = new WebSocket(withAuthToken(url));
+      const ws = new WebSocket(withCredential(url));
       ws.binaryType = 'arraybuffer';
       socketRef.current = ws;
+      let opened = false;
 
       ws.onopen = () => {
+        opened = true;
+        onOpenRef.current?.();
         setConnectionState('connected');
         wasConnectedRef.current = true;
         pushActivity('system', 'Connexion au daemon établie');
@@ -602,6 +585,7 @@ export function useNestorWebSocket({
         setToolApprovals([]);
         lastWakeRef.current = null;
         socketRef.current = null;
+        if (!opened) onRefusedRef.current?.();
         if (!isExplicitCloseRef.current && autoReconnect && !isSimulated) {
           reconnectTimeoutRef.current = window.setTimeout(
             () => connectRef.current(),
@@ -733,33 +717,6 @@ export function useNestorWebSocket({
   );
   const completeTodo = useCallback((id: number) => sendEvent({ type: 'todo_complete', id }), [sendEvent]);
   const deleteTodo = useCallback((id: number) => sendEvent({ type: 'todo_delete', id }), [sendEvent]);
-
-  // Jeton d'acces saisi dans les reglages : memorise, puis reconnexion avec ce jeton.
-  const [authToken, setAuthTokenState] = useState(() => readAuthToken());
-  const setAuthToken = useCallback((token: string) => {
-    const trimmed = token.trim();
-    try {
-      if (trimmed) window.localStorage.setItem(TOKEN_STORAGE_KEY, trimmed);
-      else window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-    } catch {
-      // stockage indisponible : le jeton ne vaudra que pour cette connexion
-    }
-    setAuthTokenState(trimmed);
-    // Ferme la connexion en cours : la reconnexion automatique reprend avec le nouveau jeton.
-    if (socketRef.current) socketRef.current.close();
-    else connectRef.current();
-  }, []);
-
-  // Session ouverte par passkey : memorisee pour l'onglet, puis reconnexion.
-  const setSessionToken = useCallback((token: string) => {
-    try {
-      window.sessionStorage.setItem(SESSION_STORAGE_KEY, token);
-    } catch {
-      // stockage indisponible : la session ne vaudra que jusqu'au rechargement
-    }
-    if (socketRef.current) socketRef.current.close();
-    else connectRef.current();
-  }, []);
 
   // Connecteurs : mode d'un outil externe, et accord ou refus d'une ecriture en attente.
   const setToolMode = useCallback(
@@ -893,8 +850,5 @@ export function useNestorWebSocket({
     setToolMode,
     toolApprovals,
     resolveToolApproval,
-    authToken,
-    setAuthToken,
-    setSessionToken,
   };
 }

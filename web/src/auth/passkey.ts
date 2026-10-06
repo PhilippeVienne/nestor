@@ -12,7 +12,19 @@ export interface AuthStatus {
   /** Faux si la page est ouverte sur une adresse IP : une passkey exige un nom de domaine. */
   domain_ok: boolean;
   auth_required?: boolean;
+  /** Domaine auquel les passkeys de cette page sont liees. */
+  rp_id?: string;
   detail?: string;
+}
+
+/** Reponse d'erreur du daemon (le message est en francais sans accents, pour les journaux). */
+export class DaemonError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'DaemonError';
+    this.status = status;
+  }
 }
 
 /** Adresse HTTP du daemon, deduite de celle du WebSocket (`ws://hote:port/ws`). */
@@ -46,7 +58,7 @@ async function call<T>(base: string, path: string, body?: unknown): Promise<T> {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error((data as { error?: string }).error ?? `erreur ${response.status}`);
+    throw new DaemonError(response.status, (data as { error?: string }).error ?? `erreur ${response.status}`);
   }
   return data as T;
 }
@@ -83,7 +95,7 @@ export async function enrollPasskey(base: string, code: string): Promise<string>
       excludeCredentials: pk.excludeCredentials?.map((c) => ({ ...c, id: fromBase64Url(c.id) })),
     },
   })) as PublicKeyCredential | null;
-  if (!credential) throw new Error('création de la passkey annulée');
+  if (!credential) throw new DOMException('création de la passkey annulée', 'NotAllowedError');
 
   const response = credential.response as AuthenticatorAttestationResponse;
   const finished = await call<{ token: string }>(base, '/auth/register/finish', {
@@ -119,7 +131,7 @@ export async function loginWithPasskey(base: string): Promise<string> {
       allowCredentials: pk.allowCredentials?.map((c) => ({ ...c, id: fromBase64Url(c.id) })),
     },
   })) as PublicKeyCredential | null;
-  if (!credential) throw new Error('connexion par passkey annulée');
+  if (!credential) throw new DOMException('connexion par passkey annulée', 'NotAllowedError');
 
   const response = credential.response as AuthenticatorAssertionResponse;
   const finished = await call<{ token: string }>(base, '/auth/login/finish', {
@@ -138,4 +150,41 @@ export async function loginWithPasskey(base: string): Promise<string> {
     },
   });
   return finished.token;
+}
+
+/** Traduit l'echec d'une ceremonie en une phrase lisible, sans le texte brut du navigateur. */
+export function describeAuthError(error: unknown, step: 'enroll' | 'login'): string {
+  if (error instanceof DaemonError) {
+    if (error.status === 503) return "Ce daemon ne propose pas l'authentification par passkey.";
+    if (step === 'enroll') {
+      if (error.status === 403 && error.message.includes('lien')) {
+        return "Ce lien d'enrôlement n'est plus valable : il a déjà servi ou il a expiré. Relancez la commande pour en obtenir un nouveau.";
+      }
+      if (error.status === 403) return "Le daemon a refusé cette passkey. Recommencez l'enregistrement.";
+    } else {
+      if (error.status === 404) return "Aucune passkey n'est enregistrée pour cette adresse.";
+      if (error.status === 403) return "Le daemon n'a pas reconnu cette passkey.";
+    }
+    if (error.status === 400) return 'La demande a expiré avant sa validation. Recommencez.';
+    return `Le daemon a répondu par une erreur (code ${error.status}). Recommencez.`;
+  }
+  if (error instanceof DOMException) {
+    switch (error.name) {
+      case 'NotAllowedError':
+      case 'AbortError':
+        return step === 'enroll'
+          ? "L'enregistrement a été annulé ou a expiré. Aucune passkey n'a été créée."
+          : "La connexion a été annulée ou a expiré. Vous pouvez réessayer.";
+      case 'InvalidStateError':
+        return 'Cet appareil possède déjà une passkey pour Nestor. Connectez-vous avec elle.';
+      case 'SecurityError':
+        return 'Le navigateur refuse une passkey pour cette adresse (domaine ou connexion non sécurisée).';
+      case 'NotSupportedError':
+        return "Cet appareil ne propose pas d'authentificateur compatible.";
+    }
+  }
+  if (error instanceof TypeError) {
+    return 'Le daemon ne répond pas. Vérifiez que nestord est lancé, puis réessayez.';
+  }
+  return step === 'enroll' ? "L'enregistrement de la passkey a échoué." : 'La connexion par passkey a échoué.';
 }

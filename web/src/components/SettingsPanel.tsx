@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
+import { LogOut, X } from 'lucide-react';
 import type { ConnectorInfo, ContextInfo, NestorSettings, ToolMode } from '../types';
+import type { Auth } from '../auth/useAuth';
 import { ConnectorsList } from './DashboardPanels';
+import { TokenField } from './TokenField';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -13,8 +15,7 @@ interface SettingsPanelProps {
   connectors: ConnectorInfo[];
   onSetToolMode: (server: string, tool: string, mode: ToolMode) => void;
   context: ContextInfo | null;
-  authToken: string;
-  onSetAuthToken: (token: string) => void;
+  auth: Auth;
   connected: boolean;
 }
 
@@ -134,13 +135,20 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   connectors,
   onSetToolMode,
   context,
-  authToken,
-  onSetAuthToken,
+  auth,
   connected,
 }) => {
-  const [tokenDraft, setTokenDraft] = useState(authToken);
-  useEffect(() => setTokenDraft(authToken), [authToken]);
   if (!isOpen) return null;
+
+  // Le daemon rediffuse `auth_required` ; a defaut, la reponse de `/auth/status` a l'ouverture.
+  const authRequired = context?.auth_required ?? auth.status?.auth_required ?? false;
+  const accessLabel =
+    auth.credentialKind === 'session'
+      ? 'Connecté. Session ouverte par passkey, valable pour cet onglet.'
+      : auth.credentialKind === 'token'
+      ? "Connecté avec un jeton d'accès mémorisé dans ce navigateur."
+      : 'Connecté avec le jeton fourni à la compilation (VITE_NESTOR_TOKEN).';
+  const canLogout = authRequired || auth.credentialKind === 'session' || auth.credentialKind === 'token';
 
   const models = settings && !JUDGE_MODELS.includes(settings.judge_model)
     ? [settings.judge_model, ...JUDGE_MODELS]
@@ -166,43 +174,35 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         </div>
 
         <Section title="Accès au daemon">
-          <p className={!connected ? 'text-amber-200' : context?.auth_required ? 'text-cyan-300' : 'text-amber-200'}>
+          <p className={connected && authRequired ? 'text-cyan-300' : 'text-amber-200'}>
             {!connected
-              ? 'Non connecté. Si le daemon exige un jeton, saisissez-le ci-dessous.'
-              : context?.auth_required
-              ? 'Connecté. Un jeton est exigé pour se connecter.'
-              : 'Connecté sans jeton : toute connexion locale peut piloter Nestor. Les connecteurs externes restent désactivés.'}
+              ? 'Non connecté : le daemon ne répond pas.'
+              : authRequired
+              ? accessLabel
+              : 'Connecté sans authentification : toute connexion locale peut piloter Nestor. Les connecteurs externes restent désactivés.'}
           </p>
-          <form
-            className="flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              onSetAuthToken(tokenDraft);
-            }}
-          >
-            <label htmlFor="auth-token" className="sr-only">
-              Jeton d'accès
-            </label>
-            <input
-              id="auth-token"
-              type="password"
-              autoComplete="off"
-              value={tokenDraft}
-              onChange={(e) => setTokenDraft(e.target.value)}
-              placeholder="Jeton d'accès"
-              className="flex-1 min-w-0 h-11 px-3 rounded-lg border border-slate-700 bg-slate-950 text-slate-100"
-            />
-            <button
-              type="submit"
-              className="h-11 px-4 rounded-lg border border-cyan-500/60 bg-cyan-900/50 text-cyan-50 font-semibold hover:bg-cyan-800/60 shrink-0"
-            >
-              Utiliser
-            </button>
-          </form>
-          <p className="text-[13px] text-slate-400">
-            Jeton d'onboarding : commande <span className="font-mono text-slate-200">nestord onboard</span>, puis
-            redémarrage du daemon. Il est mémorisé dans ce navigateur.
-          </p>
+          {!authRequired && (
+            <p className="text-[13px] text-slate-400">
+              Pour protéger l'accès par une passkey, lancez{' '}
+              <span className="font-mono text-slate-200">nestord onboard --passkey</span> et ouvrez le lien affiché.
+            </p>
+          )}
+          {canLogout && (
+            <>
+              <button
+                type="button"
+                onClick={auth.logout}
+                className="self-start h-11 px-4 inline-flex items-center gap-2 rounded-lg border border-slate-600 bg-slate-900 text-slate-100 font-semibold hover:border-rose-400/70 hover:text-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
+              >
+                <LogOut className="w-4 h-4" aria-hidden="true" />
+                Se déconnecter
+              </button>
+              <p className="text-[13px] text-slate-400">
+                Efface la session de cet onglet et le jeton mémorisé, puis revient à l'écran de connexion.
+              </p>
+            </>
+          )}
+          <TokenField id="settings-token" onSubmit={auth.submitToken} />
         </Section>
 
         {!settings ? (

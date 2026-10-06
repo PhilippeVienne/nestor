@@ -12,8 +12,9 @@ nestord onboard --passkey --ui https://kanto.exemple.ts.net:8443   # autre adres
 ```
 
 La commande affiche un lien valable 10 minutes et utilisable une seule fois
-(`…/?enroll=<code>`). Ouvrez-le dans le navigateur à équiper : un bandeau propose
-« Créer la passkey », puis le navigateur affiche son invite habituelle. nestord
+(`…/?enroll=<code>`). Ouvrez-le dans le navigateur à équiper : l'écran
+« Enregistrer une passkey » propose « Créer la passkey », puis le navigateur
+affiche son invite habituelle. nestord
 ne conserve du code que son empreinte, dans `~/.config/nestord/enroll_code`.
 
 Dès qu'une passkey est enregistrée, **`/ws` exige une authentification** : une
@@ -24,13 +25,17 @@ connecteurs externes déclarés avant l'enrôlement.
 ## Se connecter
 
 À l'ouverture de l'interface, si le daemon demande une authentification, un
-bandeau propose « Se connecter » : la passkey signe un défi, nestord vérifie la
-signature et délivre un jeton de session.
+écran de connexion précède l'application et propose « Se connecter » : la
+passkey signe un défi, nestord vérifie la signature et délivre un jeton de
+session. L'interface n'ouvre `/ws` qu'ensuite. Le jeton de `nestord onboard`
+reste accepté, par le lien « Utiliser un jeton d'accès » du même écran.
 
 - La session vaut pour l'onglet (elle survit à un rechargement, pas à la
   fermeture de l'onglet) et 7 jours au plus.
 - Les sessions ne vivent qu'en mémoire : un redémarrage de nestord redemande la
-  passkey.
+  passkey (l'interface revient à l'écran de connexion).
+- Réglages > Accès au daemon > « Se déconnecter » efface la session de l'onglet
+  et le jeton mémorisé.
 
 ## Contraintes
 

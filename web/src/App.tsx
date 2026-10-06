@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import { useNestorWebSocket, DEFAULT_WS_URL } from './hooks/useNestorWebSocket';
-import { AuthGate } from './components/AuthGate';
+import { useNestorWebSocket } from './hooks/useNestorWebSocket';
+import { useAuth, type Auth } from './auth/useAuth';
+import { LoginScreen } from './components/LoginScreen';
 import { OrbCanvas } from './components/OrbCanvas';
 import { DialogueStream } from './components/DialogueStream';
 import { ToolConsole } from './components/ToolConsole';
@@ -14,7 +15,23 @@ import { ActivityLog } from './components/ActivityLog';
 import { MissionPanel } from './components/MissionPanel';
 import { Card, SituationPanel, TasksPanel, DevicesPanel, SystemPanel } from './components/DashboardPanels';
 
+/**
+ * L'ecran de connexion passe d'abord : l'application, et avec elle le WebSocket, n'est
+ * montee qu'une fois une preuve d'acces obtenue ou si le daemon n'en exige aucune.
+ */
 export function App() {
+  const auth = useAuth();
+  const entered = auth.phase === 'ready';
+  return (
+    <>
+      {(entered || auth.phase === 'opening') && <Dashboard key={auth.epoch} auth={auth} hidden={!entered} />}
+      {!entered && <LoginScreen auth={auth} />}
+    </>
+  );
+}
+
+/** L'application elle-meme. `hidden` : encore masquee par l'ecran de connexion. */
+function Dashboard({ auth, hidden }: { auth: Auth; hidden: boolean }) {
   const {
     connectionState,
     status,
@@ -52,10 +69,7 @@ export function App() {
     setToolMode,
     toolApprovals,
     resolveToolApproval,
-    authToken,
-    setAuthToken,
-    setSessionToken,
-  } = useNestorWebSocket();
+  } = useNestorWebSocket({ onOpen: auth.onSocketOpen, onRefused: auth.onSocketRefused });
 
   // Default closed to keep UI clean and spacious; opens smoothly when user wants or tools run
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
@@ -107,7 +121,10 @@ export function App() {
   );
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#080a0f] text-slate-100 overflow-hidden font-sans select-none">
+    <div
+      inert={hidden}
+      className="flex flex-col h-screen w-screen bg-[#080a0f] text-slate-100 overflow-hidden font-sans select-none"
+    >
       {/* Top Header */}
       <Header
         status={status}
@@ -123,9 +140,6 @@ export function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenDashboard={() => setIsDashboardOpen(true)}
       />
-
-      {/* Enrolement et connexion par passkey */}
-      <AuthGate wsUrl={DEFAULT_WS_URL} connectionState={connectionState} onSession={setSessionToken} />
 
       {/* Main Workspace Body */}
       <div className="flex-1 flex overflow-hidden relative">
@@ -286,8 +300,7 @@ export function App() {
           connectors={connectors}
           onSetToolMode={setToolMode}
           context={context}
-          authToken={authToken}
-          onSetAuthToken={setAuthToken}
+          auth={auth}
           connected={connectionState === 'connected'}
         />
       </div>
