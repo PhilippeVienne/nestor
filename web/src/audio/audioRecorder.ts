@@ -14,6 +14,13 @@ export class AudioRecorder {
     this.holdOpenUntil = Math.max(this.holdOpenUntil, untilMs);
   }
 
+  /** Relance le traitement audio s'il est suspendu (a appeler sur un geste de l'utilisateur). */
+  public resume(): void {
+    if (this.audioContext?.state === 'suspended') {
+      void this.audioContext.resume().catch(() => {});
+    }
+  }
+
   /** Referme immediatement (interruption : la lecture est coupee). */
   public releaseHold(): void {
     this.holdOpenUntil = 0;
@@ -56,8 +63,11 @@ export class AudioRecorder {
       // 2. Setup AudioContext
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.audioContext = new AudioCtx();
+      // Sans geste prealable sur la page, le navigateur peut garder le contexte suspendu :
+      // on n'attend pas (la promesse resterait en suspens), `resume()` sera rappele au
+      // premier geste de l'utilisateur.
       if (this.audioContext.state === 'suspended') {
-        await this.audioContext.resume();
+        void this.audioContext.resume().catch(() => {});
       }
 
       this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);

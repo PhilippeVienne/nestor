@@ -636,55 +636,99 @@ export function useNestorWebSocket({
   }, [connect]);
 
   // Toggle Microphone
+  // L'utilisateur veut-il le micro ? Vrai par defaut : il s'active a l'ouverture de la
+  // session et se relance apres une reconnexion, tant qu'il ne l'a pas coupe lui-meme.
+  const micWantedRef = useRef(true);
+  const micStartingRef = useRef(false);
+
+  const stopMic = useCallback(() => {
+    if (audioRecorderRef.current) {
+      audioRecorderRef.current.stop();
+      audioRecorderRef.current = null;
+    }
+    setIsMicActive(false);
+    setStatus('idle');
+    setAudioLevels({ rms: 0, peak: 0 });
+  }, []);
+
+  const startMic = useCallback(async () => {
+    if (audioRecorderRef.current || micStartingRef.current) return;
+    micStartingRef.current = true;
+    try {
+      const recorder = new AudioRecorder({
+        sampleRate: 16000,
+        onAudioChunk: (chunkBuffer, pcm16Base64) => {
+          // Le micro reste envoye pendant que Nestor parle : c'est ce qui permet de
+          // l'interrompre a la voix. L'echo est traite par le daemon (annulation
+          // d'echo avec reference, filtre d'auto-ecoute).
+
+          // 1. Send binary frame (high performance)
+          sendBinaryAudio(chunkBuffer);
+          // 2. Also send JSON event for backends expecting JSON
+          sendEvent({
+            type: 'audio_in',
+            pcm_base64: pcm16Base64,
+            sample_rate: 16000,
+          });
+        },
+        onLevels: (rms, peak) => {
+          setAudioLevels({ rms, peak });
+          if (rms > 0.05) {
+            setStatus((prev) => (prev === 'idle' ? 'listening' : prev));
+          }
+        },
+        onError: (err) => {
+          console.error('[AudioRecorder Error]:', err);
+          audioRecorderRef.current = null;
+          setIsMicActive(false);
+        },
+      });
+
+      await recorder.start();
+      // Coupe par l'utilisateur pendant le demarrage : on n'ouvre pas le micro dans son dos.
+      if (!micWantedRef.current) {
+        recorder.stop();
+        return;
+      }
+      audioRecorderRef.current = recorder;
+      setIsMicActive(true);
+      setStatus('listening');
+    } catch (err) {
+      console.error('Failed to enable mic:', err);
+      pushNotice('Micro indisponible : vérifiez l’autorisation du navigateur, puis cliquez sur le micro.');
+    } finally {
+      micStartingRef.current = false;
+    }
+  }, [sendBinaryAudio, sendEvent, pushNotice]);
+
   const toggleMic = useCallback(async () => {
     if (isMicActive) {
-      if (audioRecorderRef.current) {
-        audioRecorderRef.current.stop();
-        audioRecorderRef.current = null;
-      }
-      setIsMicActive(false);
-      setStatus('idle');
-      setAudioLevels({ rms: 0, peak: 0 });
+      micWantedRef.current = false;
+      stopMic();
     } else {
-      try {
-        const recorder = new AudioRecorder({
-          sampleRate: 16000,
-          onAudioChunk: (chunkBuffer, pcm16Base64) => {
-            // Le micro reste envoye pendant que Nestor parle : c'est ce qui permet de
-            // l'interrompre a la voix. L'echo est traite par le daemon (annulation
-            // d'echo avec reference, filtre d'auto-ecoute).
-
-            // 1. Send binary frame (high performance)
-            sendBinaryAudio(chunkBuffer);
-            // 2. Also send JSON event for backends expecting JSON
-            sendEvent({
-              type: 'audio_in',
-              pcm_base64: pcm16Base64,
-              sample_rate: 16000,
-            });
-          },
-          onLevels: (rms, peak) => {
-            setAudioLevels({ rms, peak });
-            if (rms > 0.05) {
-              setStatus((prev) => (prev === 'idle' ? 'listening' : prev));
-            }
-          },
-          onError: (err) => {
-            console.error('[AudioRecorder Error]:', err);
-            setIsMicActive(false);
-          },
-        });
-
-        await recorder.start();
-        audioRecorderRef.current = recorder;
-        setIsMicActive(true);
-        setStatus('listening');
-      } catch (err) {
-        console.error('Failed to enable mic:', err);
-        alert('Impossible d’accéder au microphone dans ce navigateur. Vérifiez les autorisations.');
-      }
+      micWantedRef.current = true;
+      await startMic();
     }
-  }, [isMicActive, sendBinaryAudio, sendEvent]);
+  }, [isMicActive, startMic, stopMic]);
+
+  // Le micro s'active des l'ouverture de la session. Sans geste prealable sur la page, le
+  // navigateur peut retenir le demarrage de l'audio : le premier clic ou la premiere touche
+  // le debloque (ou relance la tentative).
+  useEffect(() => {
+    if (connectionState !== 'connected' || isSimulated || !micWantedRef.current) return;
+    void startMic();
+    const retry = () => {
+      if (!micWantedRef.current) return;
+      if (audioRecorderRef.current) audioRecorderRef.current.resume();
+      else void startMic();
+    };
+    window.addEventListener('pointerdown', retry);
+    window.addEventListener('keydown', retry);
+    return () => {
+      window.removeEventListener('pointerdown', retry);
+      window.removeEventListener('keydown', retry);
+    };
+  }, [connectionState, isSimulated, startMic]);
 
   // Annulation d'une mission en cours
   const stopMission = useCallback(
