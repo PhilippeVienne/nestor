@@ -140,7 +140,16 @@ pub fn spawn(
         "--output-format",
         "stream-json",
         "--include-partial-messages",
-        "--dangerously-skip-permissions",
+        // Mode auto du CLI plutot que `--dangerously-skip-permissions` : personne ne peut
+        // repondre a une invite ici, donc un classifieur decide action par action. Les
+        // lectures et les modifications du dossier de travail passent sans examen ; le reste
+        // (shell, reseau, outils MCP qui ne sont pas en lecture seule) est examine et peut
+        // etre refuse, auquel cas l'assistant recoit le motif et poursuit son tour. C'est un
+        // filet, pas une garantie : une commande destructrice peut passer, et le mode exige
+        // un modele et un compte qui le proposent (sinon le CLI demarre en mode manuel, ou
+        // toute action soumise a invite est refusee faute d'interlocuteur).
+        "--permission-mode",
+        "auto",
         // Requis par le CLI : --output-format stream-json en mode --print impose --verbose.
         "--verbose",
         // Seul le serveur MCP de nestord est visible : sans cela, les connecteurs attaches au

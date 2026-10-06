@@ -5,8 +5,12 @@
 //! aucune cle API, aucun appel reseau externe.
 //!
 //! Ne couvre pas les outils internes de Claude (Bash, Edit, Write...) : ils
-//! s'executent dans le sous-processus `claude -p --dangerously-skip-permissions`
-//! sans point d'interception cote nestord. Cf. la discussion dans
+//! s'executent dans le sous-processus `claude -p --permission-mode auto`, sans
+//! point d'interception cote nestord. C'est le classifieur du mode auto du CLI
+//! qui les examine (shell, reseau ; pas les lectures ni les modifications du
+//! dossier de travail) : un filet distinct de ce juge, qui ne garantit pas
+//! qu'une action dangereuse soit arretee. Les sous-agents `agy` gardent
+//! `--dangerously-skip-permissions`. Cf. la discussion dans
 //! `.agent/VISION.md`. Ce module ne juge que ce que nestord controle
 //! lui-meme : le message envoye a Claude/AGY, et le lancement d'une mission.
 

@@ -1,8 +1,9 @@
 //! Connecteurs : serveurs MCP externes (messagerie, agenda...) relayes par nestord.
 //!
-//! L'assistant tourne avec `--dangerously-skip-permissions` : lui donner
-//! directement un serveur MCP personnel reviendrait a le laisser ecrire dans la
-//! messagerie ou l'agenda sans controle. nestord fait donc **passerelle** :
+//! L'assistant tourne sans humain pour repondre aux invites du CLI (mode auto :
+//! un classifieur tranche a sa place, et laisse passer un envoi banal) : lui
+//! donner directement un serveur MCP personnel reviendrait a le laisser ecrire
+//! dans la messagerie ou l'agenda sans votre accord. nestord fait donc **passerelle** :
 //! l'assistant ne voit que le serveur MCP de nestord, qui relaie les outils
 //! externes sous le nom `<serveur>__<outil>` et applique, dans le code :
 //!

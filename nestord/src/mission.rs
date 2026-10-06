@@ -255,9 +255,14 @@ Annonce ce resultat a l'utilisateur en une ou deux phrases.",
         cancel_rx: oneshot::Receiver<String>,
     ) -> Result<MissionOutcome> {
         let mut cmd = Command::new(backend.binary());
-        cmd.args(["--output-format", "stream-json", "--dangerously-skip-permissions"]);
+        cmd.args(["--output-format", "stream-json"]);
         match backend {
             Backend::Claude => {
+                // Mode auto du CLI : un classifieur autorise ou refuse chaque action (shell,
+                // reseau...) a la place d'un humain, au lieu de tout laisser passer. Un refus
+                // n'arrete pas la mission : le sous-agent recoit le motif et continue. Ce
+                // n'est pas une garantie de surete (cf. `claude_process.rs`).
+                cmd.args(["--permission-mode", "auto"]);
                 // `-p` est un booleen et le prompt un argument positionnel ;
                 // `--verbose` est impose avec --output-format stream-json.
                 // Un sous-agent de mission n'a acces a aucun serveur MCP ni connecteur du compte :
@@ -267,6 +272,8 @@ Annonce ce resultat a l'utilisateur en une ou deux phrases.",
             Backend::Agy => {
                 // Parsing de flags a la Go : le prompt doit etre attache au
                 // flag, sinon `-p` avale l'option suivante comme prompt.
+                // `agy` n'a pas de mode auto : il garde l'autorisation generique.
+                cmd.arg("--dangerously-skip-permissions");
                 cmd.arg(format!("-p={description}"));
             }
         }

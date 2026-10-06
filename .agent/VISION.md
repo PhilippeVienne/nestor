@@ -174,8 +174,8 @@ Aujourd'hui l'appli ne demande aucune permission de localisation et ne parle
    qu'un téléphone hors du domicile l'atteigne, il faut un réseau privé
    (Tailscale / WireGuard recommandé) et **un jeton d'authentification**
    partagé, vérifié sur `/location` et `/ws`. Ne jamais exposer `/mcp` hors
-   de la machine : il permet de lancer des agents avec
-   `--dangerously-skip-permissions`. Une position est une donnée sensible :
+   de la machine : il permet de lancer des agents autonomes (mode auto de `claude`,
+   `--dangerously-skip-permissions` pour `agy`). Une position est une donnée sensible :
    ne la garder qu'en mémoire (ou un historique court et local), ne jamais la
    journaliser en clair au niveau `info`.
 4. **Configuration** : l'URL du serveur et le jeton remplacent l'adresse

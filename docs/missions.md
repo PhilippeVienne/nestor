@@ -86,8 +86,8 @@ evenements `rate_limit_event` contenant le remplissage des fenetres 5 h et 7 j
 ## Les deux CLI ne se pilotent pas de la meme facon
 
 `agy` ressemble beaucoup a `claude` en surface (`-p`, `--output-format
-stream-json`, `--dangerously-skip-permissions`), mais deux differences cassent
-tout si on les ignore - les deux ont ete rencontrees en integration :
+stream-json`), mais deux differences cassent tout si on les ignore - les deux
+ont ete rencontrees en integration :
 
 **1. Passage du prompt.** `claude` traite `-p` comme un booleen et prend le
 prompt en argument positionnel. `agy` parse ses flags a la maniere de Go : le

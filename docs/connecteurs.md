@@ -1,8 +1,11 @@
 # Connecteurs : serveurs MCP externes
 
 Nestor peut utiliser des serveurs MCP externes (messagerie, agenda, notes…).
-L'assistant tourne sans demander de permission pour ses outils : lui donner
-directement un accès personnel reviendrait à le laisser écrire sans contrôle.
+L'assistant tourne en « mode auto » du CLI `claude` (`--permission-mode auto`) :
+personne ne répond à ses demandes de permission, un classifieur autorise ou
+refuse chaque action à votre place. Ce classifieur laisse passer un envoi
+banal et ne garantit pas d'arrêter une action dangereuse : donner à l'assistant
+un accès personnel direct reviendrait à le laisser écrire sans votre accord.
 `nestord` fait donc **passerelle** : l'assistant ne voit que le serveur MCP de
 nestord, qui relaie les outils externes sous le nom `<serveur>__<outil>` et
 applique les règles ci-dessous **dans le code** (`nestord/src/connectors.rs`).
