@@ -77,6 +77,8 @@ pub struct MissionManager {
     events_tx: broadcast::Sender<ServerEvent>,
     claude: Arc<OnceLock<ClaudeHandle>>,
     usage: Arc<UsageState>,
+    /// Programme lance a la place de `claude` / `agy` (sous-agent factice des tests).
+    binary_override: Option<std::path::PathBuf>,
 }
 
 impl MissionManager {
@@ -92,7 +94,14 @@ impl MissionManager {
             events_tx,
             claude,
             usage,
+            binary_override: None,
         }
+    }
+
+    #[cfg(test)]
+    fn with_binary_override(mut self, program: impl Into<std::path::PathBuf>) -> Self {
+        self.binary_override = Some(program.into());
+        self
     }
 
     pub fn list(&self) -> Vec<MissionRecord> {
@@ -254,7 +263,11 @@ Annonce ce resultat a l'utilisateur en une ou deux phrases.",
         description: &str,
         cancel_rx: oneshot::Receiver<String>,
     ) -> Result<MissionOutcome> {
-        let mut cmd = Command::new(backend.binary());
+        let program = self
+            .binary_override
+            .clone()
+            .unwrap_or_else(|| std::path::PathBuf::from(backend.binary()));
+        let mut cmd = Command::new(&program);
         cmd.args(["--output-format", "stream-json"]);
         match backend {
             Backend::Claude => {
@@ -531,4 +544,72 @@ struct StreamOutcome {
     /// ouvert quand le flux s'arrete : sinon l'UI les affiche « en cours »
     /// indefiniment.
     open_tools: HashMap<String, (String, Value)>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fake_claude.sh");
+
+    async fn next_event(rx: &mut broadcast::Receiver<ServerEvent>) -> ServerEvent {
+        tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .expect("aucun evenement de mission dans le delai")
+            .expect("canal d'evenements ferme")
+    }
+
+    /// Scenario de `.agent/reponse-annulation-mission-ui.md` : le sous-agent est
+    /// bloque dans une commande longue, la mission est annulee avec un motif. Le
+    /// motif et le travail deja produit figurent au compte rendu, et aucun appel
+    /// d'outil ne reste « en cours » pour l'UI.
+    #[tokio::test]
+    async fn cancelled_mission_closes_open_tools_and_keeps_reason() {
+        let (events_tx, mut rx) = broadcast::channel(64);
+        let manager = Arc::new(
+            MissionManager::new(events_tx, Arc::new(OnceLock::new()), Arc::new(UsageState::default()))
+                .with_binary_override(FAKE_CLAUDE),
+        );
+
+        let record = manager.start("commande longue".to_string(), Some(Backend::Claude));
+        assert!(matches!(record.status, MissionStatus::Started));
+
+        // Le sous-agent annonce son outil : il est a present bloque dedans.
+        let mut open_tools: i32 = 0;
+        loop {
+            if let ServerEvent::ToolCall { status: ToolCallStatus::Running, mission_id: Some(id), name, .. } =
+                next_event(&mut rx).await
+            {
+                assert_eq!(id, record.id);
+                assert_eq!(name, "Bash");
+                open_tools += 1;
+                break;
+            }
+        }
+
+        assert!(manager.cancel(record.id, Some("test d'annulation motivee".to_string())));
+
+        let summary = loop {
+            match next_event(&mut rx).await {
+                ServerEvent::ToolCall { status, mission_id: Some(id), .. } if id == record.id => match status {
+                    ToolCallStatus::Running => open_tools += 1,
+                    _ => open_tools -= 1,
+                },
+                ServerEvent::Mission { id, status: MissionStatus::Cancelled, summary, .. } if id == record.id => {
+                    break summary.expect("compte rendu d'annulation absent");
+                }
+                _ => {}
+            }
+        };
+
+        assert_eq!(open_tools, 0, "des appels d'outils restent ouverts apres l'annulation");
+        assert!(summary.contains("test d'annulation motivee"), "motif absent : {summary}");
+        assert!(summary.contains("Je commence par lister"), "resultat partiel absent : {summary}");
+
+        let listed = manager.list().into_iter().find(|m| m.id == record.id).expect("mission disparue");
+        assert!(matches!(listed.status, MissionStatus::Cancelled));
+        // Une seconde annulation ne trouve plus rien a arreter.
+        assert!(!manager.cancel(record.id, None));
+    }
 }
