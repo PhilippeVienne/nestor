@@ -16,13 +16,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::config::Config;
 use crate::protocol::{ClientEvent, DaemonStatus, ServerEvent};
+use crate::clock::now_ms;
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -176,11 +171,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, kind: &'static s
     let address_form = state.config.address_form.clone();
     tokio::spawn(async move {
         // Reveil survenu sans personne pour l'entendre : l'annonce de la journee d'abord.
-        if let Some(announcement) = crate::sleep::take_pending_announcement() {
-            if let Err(err) = brain_for_nudge.send_internal_report(&announcement).await {
-                tracing::error!(?err, "annonce de reveil perdue");
-            }
-        }
+        crate::sleep::on_session_ready(&brain_for_nudge).await;
         let due = match todos.due_now() {
             Ok(due) => due,
             Err(err) => {

@@ -57,6 +57,8 @@ pub struct NestorBrain {
     tokio_handle: tokio::runtime::Handle,
     active_backend: Arc<RwLock<ActiveBackend>>,
     is_fallback: Arc<AtomicBool>,
+    /// Mode reduit choisi par l'utilisateur : une relance de session ne le defait pas.
+    fallback_manual: Arc<AtomicBool>,
     fallback_reason: Arc<Mutex<Option<String>>>,
     agy_conversation_id: Arc<Mutex<Option<String>>>,
     is_processing: Arc<AtomicBool>,
@@ -122,6 +124,7 @@ impl NestorBrain {
             tokio_handle: tokio::runtime::Handle::current(),
             active_backend: Arc::new(RwLock::new(ActiveBackend::Claude)),
             is_fallback: Arc::new(AtomicBool::new(false)),
+            fallback_manual: Arc::new(AtomicBool::new(false)),
             fallback_reason: Arc::new(Mutex::new(None)),
             agy_conversation_id: Arc::new(Mutex::new(None)),
             is_processing: Arc::new(AtomicBool::new(false)),
@@ -230,8 +233,24 @@ impl NestorBrain {
         }
     }
 
-    /// Declenche la bascule vers le mode reduit AGY.
+    /// Le mode reduit a ete choisi a la main (`set_backend("agy")`).
+    pub fn fallback_is_manual(&self) -> bool {
+        self.fallback_manual.load(Ordering::Relaxed)
+    }
+
+    /// Declenche la bascule vers le mode reduit AGY, annoncee a la voix.
     pub async fn trigger_fallback(&self, reason: &str) {
+        self.fallback(reason, true).await;
+    }
+
+    /// Bascule sans annonce vocale : pour un processus mort que le superviseur relance
+    /// dans les secondes qui suivent (`claude_process::ensure_alive`). Si la situation
+    /// dure, la boucle proactive le signale.
+    pub async fn trigger_fallback_quiet(&self, reason: &str) {
+        self.fallback(reason, false).await;
+    }
+
+    async fn fallback(&self, reason: &str, announce: bool) {
         let already_fallback = self.is_fallback.swap(true, Ordering::SeqCst);
         *self.active_backend.write().await = ActiveBackend::Agy;
         *self.fallback_reason.lock().unwrap() = Some(reason.to_string());
@@ -245,7 +264,7 @@ impl NestorBrain {
         });
 
         // Si ce n'etait pas deja en fallback, on annonce la bascule vocalement
-        if !already_fallback {
+        if announce && !already_fallback {
             let announcement = "Monsieur, le quota de session Claude etant epuise, je bascule en mode reduit sur Antigravity pour assurer notre service.";
             let _ = self.events_tx.send(ServerEvent::Transcript {
                 role: Role::Assistant,
@@ -271,6 +290,7 @@ impl NestorBrain {
     pub async fn set_backend(&self, target: &str) {
         match target.trim().to_ascii_lowercase().as_str() {
             "claude" => {
+                self.fallback_manual.store(false, Ordering::SeqCst);
                 self.is_fallback.store(false, Ordering::SeqCst);
                 *self.active_backend.write().await = ActiveBackend::Claude;
                 *self.fallback_reason.lock().unwrap() = None;
@@ -283,9 +303,11 @@ impl NestorBrain {
                 tracing::info!("Backend conversationnel force sur Claude");
             }
             "agy" => {
+                self.fallback_manual.store(true, Ordering::SeqCst);
                 self.trigger_fallback("Mode reduit active manuellement").await;
             }
             "auto" => {
+                self.fallback_manual.store(false, Ordering::SeqCst);
                 if self.usage.is_exhausted() {
                     self.trigger_fallback("Quota Claude epuise (mode auto)").await;
                 } else {

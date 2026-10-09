@@ -129,6 +129,9 @@ pub struct SleepConfig {
     /// Demander la mise en veille (`systemctl suspend`) des que c'est permis, au lieu
     /// de laisser la politique d'economie d'energie de GNOME le faire.
     pub force_suspend: bool,
+    /// Apres une sortie de veille ou un reveil programme, la machine reste eveillee
+    /// au moins ce temps : sans quoi elle se rendormirait avant l'annonce.
+    pub wake_grace_minutes: u64,
 }
 
 impl Default for SleepConfig {
@@ -140,6 +143,7 @@ impl Default for SleepConfig {
             location_max_age_minutes: 180,
             rest_free_hours: 4,
             force_suspend: false,
+            wake_grace_minutes: 30,
         }
     }
 }

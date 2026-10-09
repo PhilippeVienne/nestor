@@ -18,10 +18,8 @@ use tokio::sync::broadcast;
 use crate::config::Config;
 use crate::protocol::{DaemonStatus, Role, ServerEvent};
 use crate::todo::TodoStore;
+use crate::clock::now_ms;
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
-}
 
 // ---------------------------------------------------------------- appareils
 

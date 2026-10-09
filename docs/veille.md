@@ -39,7 +39,9 @@ Une session `claude` morte est **relancée** (`claude_process::ensure_alive`) :
 la session est remplaçable (`ClaudeSlot`), le superviseur garde les paramètres
 de lancement et l'identifiant de session, et reprend la conversation par
 `--resume` à la première tentative. Entre-temps le cerveau est en mode réduit ;
-au retour, `set_backend("auto")` revient à Claude sauf quota épuisé. Une mort
+la bascule est silencieuse (pas d'annonce de quota pour un plantage) ; au
+retour, `set_backend("auto")` revient à Claude sauf quota épuisé ou mode réduit
+choisi à la main. Une mort
 précoce (moins de 30 s après le lancement) espace les relances : 5 s, 10 s,
 20 s… jusqu'à 5 min. La même relance joue à tout moment, pas seulement après
 une veille.
@@ -75,7 +77,9 @@ Déroulé, chaque minute :
 2. Dès que les conditions sont réunies, un timer systemd utilisateur
    transitoire `nestor-wake` est armé avec `WakeSystem=true` (un seul à la
    fois, réarmé si l'heure change de plus d'une minute). Son service appelle
-   `POST /wake` avec un secret tiré au démarrage.
+   `POST /wake` avec un secret tiré au démarrage, lu dans
+   `~/.config/nestord/wake_header` (droits 600) : la ligne de commande de
+   l'unité, visible par tout utilisateur local, ne porte que le chemin.
 3. nestord **vérifie** le timer (`systemctl --user list-timers --output=json`)
    avant de relâcher le verrou. Sans réveil armé, la machine reste éveillée et
    le contexte dit « réveil non programmé ».
@@ -86,8 +90,12 @@ Déroulé, chaque minute :
 5. Au réveil : `PrepareForSleep(false)` recalcule le contexte et relance la
    session si besoin ; le timer déclenche `/wake`, qui réinjecte un rapport
    interne (heure, premier rendez-vous, départ conseillé, tâches en retard)
-   que Nestor formule. Sans client connecté, l'annonce attend la prochaine
-   connexion. Un événement `alert` de type `wake` trace le réveil.
+   que Nestor formule. Sans client connecté, ou si la session est en cours de
+   relance, l'annonce attend (prochaine connexion ou session prête). Un
+   événement `alert` de type `wake` trace le réveil. Pendant
+   `wake_grace_minutes` après une sortie de veille ou un réveil programmé, la
+   machine reste éveillée : sans ce sursis elle se rendormirait avant
+   l'annonce.
 
 Diagnostic : `systemctl --user list-timers nestor-wake.timer`.
 
@@ -99,6 +107,7 @@ require_home = true
 location_max_age_minutes = 180
 rest_free_hours = 4
 force_suspend = false
+wake_grace_minutes = 30
 ```
 
 **À valider sur la machine**, et non vérifiable par le code : que le timer

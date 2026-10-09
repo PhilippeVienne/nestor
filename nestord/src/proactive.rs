@@ -24,7 +24,7 @@
 use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use chrono::Local;
 use tokio::sync::broadcast;
@@ -35,16 +35,19 @@ use crate::mission::MissionManager;
 use crate::protocol::{DaemonStatus, MissionStatus, ServerEvent};
 use crate::todo::TodoStore;
 use crate::usage::UsageState;
+use crate::clock::now_ms;
 
 /// Alertes gardees pour l'instantane de connexion.
 const RECENT_ALERTS: usize = 20;
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Identifiant d'alerte suivant, aussi pour les alertes emises hors de la boucle (`sleep.rs`).
+pub fn next_alert_id() -> u64 {
+    NEXT_ID.fetch_add(1, Ordering::SeqCst)
+}
 static RECENT: OnceLock<Mutex<VecDeque<ServerEvent>>> = OnceLock::new();
 
-fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
-}
 
 /// Dernieres alertes emises, de la plus ancienne a la plus recente.
 pub fn recent_alerts() -> Vec<ServerEvent> {
@@ -395,7 +398,7 @@ Ne signale que ce qui merite attention, en une phrase ; s'il n'y a rien, ne dis 
                     }
                     for alert in alerts {
                         let event = ServerEvent::Alert {
-                            id: NEXT_ID.fetch_add(1, Ordering::SeqCst),
+                            id: next_alert_id(),
                             kind: alert.kind.to_string(),
                             text: alert.text,
                             at_ms: now,

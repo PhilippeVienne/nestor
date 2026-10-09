@@ -231,21 +231,31 @@ pub fn ensure_alive() {
         };
         match spawn(&supervisor.params, resume.as_deref()) {
             Ok(handle) => {
+                // Poignee stockee et drapeau rendu avant le moindre `await` : si le
+                // processus meurt aussitot, sa supervision peut relancer a son tour.
                 supervisor.params.slot.set(handle);
+                supervisor.relaunching.store(false, Ordering::SeqCst);
                 tracing::info!(resumed = resume.is_some(), "session claude relancee");
-                // Retour a Claude si le mode reduit ne tenait qu'a la mort du processus.
-                supervisor.params.brain.set_backend("auto").await;
+                // Retour a Claude si le mode reduit ne tenait qu'a la mort du processus,
+                // jamais par-dessus un choix manuel de l'utilisateur.
+                if !supervisor.params.brain.fallback_is_manual() {
+                    supervisor.params.brain.set_backend("auto").await;
+                }
+                crate::sleep::on_session_ready(&supervisor.params.brain).await;
             }
             Err(err) => {
                 tracing::error!(?err, "relance de la session claude impossible");
                 supervisor.attempts.fetch_add(1, Ordering::SeqCst);
                 supervisor.relaunching.store(false, Ordering::SeqCst);
                 ensure_alive();
-                return;
             }
         }
-        supervisor.relaunching.store(false, Ordering::SeqCst);
     });
+}
+
+/// La session conversationnelle est-elle lancee ?
+pub fn session_alive() -> bool {
+    SUPERVISOR.get().is_some_and(|s| s.params.slot.is_alive())
 }
 
 fn remember_session(session_id: &str) {
@@ -346,17 +356,20 @@ pub fn spawn(params: &SpawnParams, resume: Option<&str>) -> Result<ClaudeHandle>
     let started = std::time::Instant::now();
     let resumed = resume.is_some();
     tokio::spawn(async move {
-        match child.wait().await {
+        let reason = match child.wait().await {
             Ok(status) => {
                 tracing::warn!(?status, "le processus claude s'est termine");
-                brain_sup.trigger_fallback("Processus Claude termine").await;
+                "Processus Claude termine, relance en cours"
             }
             Err(err) => {
                 tracing::error!(?err, "erreur en attendant la fin du processus claude");
-                brain_sup.trigger_fallback("Erreur processus Claude").await;
+                "Erreur processus Claude, relance en cours"
             }
-        }
+        };
+        // L'emplacement est vide avant tout : personne ne doit plus voir cette poignee.
         slot.clear();
+        // Bascule silencieuse : ce n'est pas un quota epuise, et la relance suit.
+        brain_sup.trigger_fallback_quiet(reason).await;
         if let Some(supervisor) = SUPERVISOR.get() {
             use std::sync::atomic::Ordering;
             // Mort precoce : la relance precedente n'a pas tenu, on espace les suivantes.

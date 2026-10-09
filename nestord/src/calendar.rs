@@ -30,6 +30,7 @@ use tokio::sync::broadcast;
 
 use crate::config::{Config, GoogleConfig};
 use crate::protocol::ServerEvent;
+use crate::clock::now_ms;
 
 const AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
@@ -61,9 +62,6 @@ pub fn next_event() -> Option<Event> {
     UPCOMING.lock().unwrap().iter().find(|e| !e.all_day).cloned()
 }
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
-}
 
 pub fn token_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());

@@ -35,6 +35,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{broadcast, oneshot};
 
 use crate::protocol::ServerEvent;
+use crate::clock::now_ms;
 
 /// Delai de reponse d'un serveur externe.
 const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(60);
@@ -355,9 +356,6 @@ fn default_mode(tool: &RemoteTool) -> ToolMode {
     if tool.read_only { ToolMode::Read } else { ToolMode::Confirm }
 }
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
-}
 
 static GLOBAL: OnceLock<Arc<Connectors>> = OnceLock::new();
 

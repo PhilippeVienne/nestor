@@ -7,6 +7,7 @@ mod audio;
 mod auth;
 mod brain;
 mod claude_process;
+mod clock;
 mod config;
 mod connectors;
 mod dashboard;

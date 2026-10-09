@@ -29,6 +29,7 @@ use zbus::zvariant::OwnedFd;
 use crate::config::{Config, PowerConfig};
 use crate::mission::MissionManager;
 use crate::protocol::{DaemonStatus, MissionStatus, ServerEvent};
+use crate::clock::now_ms;
 
 #[zbus::proxy(
     interface = "org.gnome.Mutter.IdleMonitor",
@@ -76,9 +77,6 @@ pub fn snapshot() -> PresenceInfo {
     PRESENCE.lock().unwrap().clone()
 }
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
-}
 
 /// Ce qui justifie de garder la machine eveillee.
 #[derive(Debug, Default)]
@@ -203,7 +201,13 @@ pub fn spawn(
                         None => std::future::pending().await,
                     }
                 } => {
-                    let start = signal.as_ref().and_then(|s| s.args().ok()).map(|args| *args.start()).unwrap_or(false);
+                    let Some(signal) = signal else {
+                        // Bus systeme perdu : on cesse d'ecouter, sans tourner a vide.
+                        tracing::warn!("flux PrepareForSleep termine : la sortie de veille ne sera plus detectee");
+                        sleep_signals = None;
+                        continue;
+                    };
+                    let start = signal.args().ok().map(|args| *args.start()).unwrap_or(false);
                     if start {
                         tracing::info!("la machine part en veille");
                         continue;

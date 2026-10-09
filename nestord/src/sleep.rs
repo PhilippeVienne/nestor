@@ -33,6 +33,7 @@ use crate::calendar::Event;
 use crate::config::{Config, SleepConfig, WakeConfig};
 use crate::protocol::ServerEvent;
 use crate::ws::AppState;
+use crate::clock::now_ms;
 
 const TIMER_UNIT: &str = "nestor-wake";
 
@@ -46,6 +47,40 @@ static STATE: Mutex<SleepInfo> = Mutex::new(SleepInfo {
     wake_armed: false,
 });
 static SUSPEND_REQUESTED: AtomicBool = AtomicBool::new(false);
+/// Dernier reveil programme recu sur `/wake` (epoch ms).
+static LAST_WAKE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn wake_header_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(home).join(".config/nestord/wake_header")
+}
+
+/// Ecrit l'en-tete d'autorisation du timer dans un fichier 0600 : la ligne de
+/// commande de l'unite, lisible par tout utilisateur local, ne porte que le chemin.
+fn write_wake_header(secret: &str) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let path = wake_header_path();
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut file = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&path)?;
+    writeln!(file, "Authorization: Bearer {secret}")?;
+    Ok(())
+}
+
+/// Annonce de reveil en attente, remise des qu'un client ecoute et que la session est
+/// prete (appele a la connexion d'un client et a la relance de la session).
+pub async fn on_session_ready(brain: &crate::brain::NestorBrain) {
+    if crate::dashboard::client_count() == 0 || !crate::claude_process::session_alive() {
+        return;
+    }
+    if let Some(announcement) = take_pending_announcement() {
+        if let Err(err) = brain.send_internal_report(&announcement).await {
+            tracing::error!(?err, "annonce de reveil perdue");
+        }
+    }
+}
 
 /// Etat publie dans le contexte.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -79,9 +114,6 @@ pub fn take_pending_announcement() -> Option<String> {
     PENDING_ANNOUNCEMENT.lock().unwrap().take()
 }
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
-}
 
 // ------------------------------------------------------------------- regles
 
@@ -98,6 +130,8 @@ pub struct SleepObservation {
     pub active_reasons: Vec<String>,
     pub quiet: bool,
     pub next_event_ms: Option<u64>,
+    /// Temps ecoule depuis la derniere sortie de veille ou le dernier reveil programme.
+    pub resumed_age_ms: Option<u64>,
 }
 
 /// Ce qui empeche la mise en veille. Vide : toutes les conditions sont reunies.
@@ -122,6 +156,12 @@ pub fn decide(obs: &SleepObservation, cfg: &SleepConfig) -> Vec<String> {
     }
     if !obs.active_reasons.is_empty() {
         blockers.push(format!("actif : {}", obs.active_reasons.join(" ; ")));
+    }
+    if let Some(age) = obs.resumed_age_ms {
+        let grace = cfg.wake_grace_minutes * 60_000;
+        if age < grace {
+            blockers.push(format!("reveillee il y a {} min", age / 60_000));
+        }
     }
     if !obs.quiet {
         match obs.next_event_ms {
@@ -169,14 +209,10 @@ pub fn build_announcement(now: DateTime<Local>, events: &[Event], overdue: usize
     let first = events.iter().find(|e| !e.all_day && e.start_ms > now.timestamp_millis().max(0) as u64);
     let agenda = match first {
         Some(e) => {
-            let start = Local.timestamp_millis_opt(e.start_ms as i64).single().map(|s| s.format("%H:%M").to_string()).unwrap_or_default();
+            let start = crate::calendar::format_time(e.start_ms);
             match (&e.location, e.online) {
                 (Some(location), false) => {
-                    let leave = Local
-                        .timestamp_millis_opt(e.start_ms as i64 - (travel_minutes as i64) * 60_000)
-                        .single()
-                        .map(|s| s.format("%H:%M").to_string())
-                        .unwrap_or_default();
+                    let leave = crate::calendar::format_time(e.start_ms.saturating_sub(travel_minutes * 60_000));
                     format!("Premier rendez-vous : « {} » a {start} a {location}, depart conseille vers {leave}.", e.title)
                 }
                 _ => format!("Premier rendez-vous : « {} » a {start} (en ligne ou sans lieu).", e.title),
@@ -212,7 +248,7 @@ fn french_date(now: DateTime<Local>) -> String {
 
 // ------------------------------------------------------------- timer systemd
 
-fn systemd_run_args(at: DateTime<Local>, secret: &str) -> Vec<String> {
+fn systemd_run_args(at: DateTime<Local>, header_path: &std::path::Path) -> Vec<String> {
     vec![
         "--user".into(),
         format!("--on-calendar={}", at.format("%Y-%m-%d %H:%M:%S")),
@@ -225,7 +261,7 @@ fn systemd_run_args(at: DateTime<Local>, secret: &str) -> Vec<String> {
         "-X".into(),
         "POST".into(),
         "-H".into(),
-        format!("Authorization: Bearer {secret}"),
+        format!("@{}", header_path.display()),
         format!("http://{}/wake", crate::LISTEN_ADDR),
     ]
 }
@@ -260,10 +296,10 @@ async fn disarm() {
 }
 
 /// Programme le reveil (remplace le precedent) et retourne l'echeance verifiee.
-async fn arm(at: DateTime<Local>, secret: &str) -> Result<u64> {
+async fn arm(at: DateTime<Local>, header_path: &std::path::Path) -> Result<u64> {
     disarm().await;
     let out = tokio::process::Command::new("systemd-run")
-        .args(systemd_run_args(at, secret))
+        .args(systemd_run_args(at, header_path))
         .output()
         .await
         .context("lancement de systemd-run")?;
@@ -282,13 +318,21 @@ pub fn spawn(
     config: Arc<Config>,
     current_place: Arc<Mutex<Option<String>>>,
 ) {
-    let secret = crate::auth::random_hex(16).unwrap_or_else(|_| "nestor".to_string());
-    let _ = WAKE_SECRET.set(secret.clone());
     let cfg = config.sleep.clone();
     if !cfg.enabled {
         tracing::info!("veille nocturne non geree par nestord (configuration)");
         return;
     }
+    let Ok(secret) = crate::auth::random_hex(16) else {
+        tracing::error!("alea indisponible : veille nocturne non geree");
+        return;
+    };
+    if let Err(err) = write_wake_header(&secret) {
+        tracing::error!(?err, "en-tete de reveil non ecrit : veille nocturne non geree");
+        return;
+    }
+    let _ = WAKE_SECRET.set(secret);
+    let header_path = wake_header_path();
     STATE.lock().unwrap().sleep_managed = true;
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
@@ -305,18 +349,25 @@ pub fn spawn(
                 active_reasons: crate::power::current_reasons(),
                 quiet: config.quiet_hours.contains(now.time()),
                 next_event_ms: crate::calendar::next_event().map(|e| e.start_ms),
+                resumed_age_ms: [presence.resumed_at_ms, Some(LAST_WAKE_MS.load(Ordering::Relaxed)).filter(|w| *w > 0)]
+                    .into_iter()
+                    .flatten()
+                    .max()
+                    .map(|at| now_ms().saturating_sub(at)),
             };
             let blockers = decide(&obs, &cfg);
             let plan = plan_wake(now, &events, &config.wake, config.proactive.default_travel_minutes);
 
-            // Reveil arme des que la veille est possible, et rearme si l'heure change.
-            let mut armed_ms = armed_at().await;
+            // Reveil arme des que la veille est possible, et rearme si l'heure change. Le
+            // timer n'est relu que lorsqu'il compte : veille possible, ou timer deja arme.
+            let previously_armed = STATE.lock().unwrap().wake_armed;
+            let mut armed_ms = if blockers.is_empty() || previously_armed { armed_at().await } else { None };
             if blockers.is_empty() {
                 if let Some((at, why)) = &plan {
                     let wanted_ms = at.timestamp_millis().max(0) as u64;
                     let differs = armed_ms.is_none_or(|a| a.abs_diff(wanted_ms) > 60_000);
                     if differs {
-                        match arm(*at, &secret).await {
+                        match arm(*at, &header_path).await {
                             Ok(verified) => {
                                 armed_ms = Some(verified);
                                 tracing::info!(reveil = %at.format("%d/%m %H:%M"), %why, "reveil programme");
@@ -376,23 +427,26 @@ pub async fn wake_handler(State(state): State<Arc<AppState>>, headers: HeaderMap
         return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "secret de reveil invalide" }))).into_response();
     }
     let now = Local::now();
+    LAST_WAKE_MS.store(now_ms(), Ordering::Relaxed);
     let overdue = state.todos.summary_counts().map(|(_, overdue)| overdue).unwrap_or(0);
     let report = build_announcement(now, &crate::calendar::upcoming(), overdue, state.config.proactive.default_travel_minutes, &state.config.address_form);
     tracing::info!("reveil : annonce de la journee");
     let _ = state.events_tx.send(ServerEvent::Alert {
-        id: 0,
+        id: crate::proactive::next_alert_id(),
         kind: "wake".to_string(),
         text: format!("reveil programme a {}", now.format("%H:%M")),
         at_ms: now_ms(),
     });
+    // Session morte pendant la nuit : relancee, et l'annonce attend qu'elle soit prete
+    // (`on_session_ready`) plutot que de partir en mode reduit avec son annonce de quota.
     crate::claude_process::ensure_alive();
-    let delivered = if crate::dashboard::client_count() > 0 {
+    let delivered = if crate::dashboard::client_count() > 0 && crate::claude_process::session_alive() {
         state.brain.send_internal_report(&report).await.is_ok()
     } else {
         false
     };
     if !delivered {
-        // Personne pour l'entendre : l'annonce attend la prochaine connexion.
+        // Personne pour l'entendre, ou session en cours de relance : l'annonce attend.
         *PENDING_ANNOUNCEMENT.lock().unwrap() = Some(report);
     }
     Json(json!({ "delivered": delivered })).into_response()
@@ -415,6 +469,7 @@ mod tests {
             active_reasons: Vec::new(),
             quiet: true,
             next_event_ms: None,
+            resumed_age_ms: None,
         }
     }
 
@@ -440,6 +495,12 @@ mod tests {
         assert!(decide(&day_free, &cfg()).is_empty());
         let day_soon = SleepObservation { quiet: false, next_event_ms: Some(1_000_000 + 2 * 3_600_000), ..obs_ok() };
         assert_eq!(decide(&day_soon, &cfg()), ["rendez-vous dans 120 min"]);
+
+        // Juste reveillee : sursis avant de redormir.
+        let just_woke = SleepObservation { resumed_age_ms: Some(5 * 60_000), ..obs_ok() };
+        assert_eq!(decide(&just_woke, &cfg()), ["reveillee il y a 5 min"]);
+        let long_ago = SleepObservation { resumed_age_ms: Some(45 * 60_000), ..obs_ok() };
+        assert!(decide(&long_ago, &cfg()).is_empty());
 
         // Sans exigence de domicile, la position ne compte plus.
         let relaxed = SleepConfig { require_home: false, ..cfg() };
@@ -507,8 +568,10 @@ mod tests {
     #[test]
     fn arguments_systemd_run() {
         let at = Local.with_ymd_and_hms(2026, 10, 10, 6, 45, 0).unwrap();
-        let args = systemd_run_args(at, "s3cret");
+        let args = systemd_run_args(at, std::path::Path::new("/home/x/.config/nestord/wake_header"));
         assert_eq!(args[1], "--on-calendar=2026-10-10 06:45:00");
+        assert!(args.contains(&"@/home/x/.config/nestord/wake_header".to_string()), "le secret ne passe pas par la ligne de commande");
+        assert!(!args.iter().any(|a| a.contains("Bearer")));
         assert!(args.contains(&"--timer-property=WakeSystem=true".to_string()));
         assert!(args.contains(&"--unit=nestor-wake".to_string()));
         assert!(args.last().unwrap().ends_with("/wake"));
@@ -519,7 +582,9 @@ mod tests {
     #[ignore]
     async fn timer_reel_arme_puis_retire() {
         let at = Local::now() + chrono::Duration::minutes(2);
-        let verified = arm(at, "test").await.expect("armement");
+        let header = std::env::temp_dir().join("nestord-wake-header-test");
+        std::fs::write(&header, "Authorization: Bearer test\n").unwrap();
+        let verified = arm(at, &header).await.expect("armement");
         assert!(verified.abs_diff(at.timestamp_millis() as u64) < 2_000);
         disarm().await;
         assert!(armed_at().await.is_none());

@@ -20,6 +20,7 @@ use tokio::sync::{broadcast, oneshot};
 use crate::claude_process::ClaudeSlot;
 use crate::protocol::{MissionStatus, ServerEvent, ToolCallStatus};
 use crate::usage::UsageState;
+use crate::clock::now_ms;
 
 /// Au-dela de ce remplissage de la fenetre de quota Claude, les missions sans
 /// backend explicite partent sur `agy` : une mission longue qui se fait couper
@@ -71,12 +72,6 @@ pub struct MissionRecord {
     pub last_activity_ms: u64,
 }
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
 
 pub struct MissionManager {
     next_id: AtomicU64,

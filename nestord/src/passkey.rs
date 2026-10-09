@@ -28,6 +28,7 @@ use sha2::{Digest, Sha256};
 use webauthn_rs::prelude::*;
 
 use crate::auth::{constant_time_eq, random_hex};
+use crate::clock::now_ms;
 
 /// Duree de validite d'un code d'enrolement.
 pub const ENROLL_TTL: Duration = Duration::from_secs(10 * 60);
@@ -93,9 +94,6 @@ impl AuthError {
     }
 }
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
-}
 
 fn config_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
