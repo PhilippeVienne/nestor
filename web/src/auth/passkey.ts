@@ -189,6 +189,25 @@ export function describeAuthError(error: unknown, step: 'enroll' | 'login'): str
   return step === 'enroll' ? "L'enregistrement de la passkey a échoué." : 'La connexion par passkey a échoué.';
 }
 
+/** Passkey enregistree, telle que le daemon la decrit (jamais la cle publique). */
+export interface PasskeyInfo {
+  id: string;
+  rp_id: string;
+  created_at_ms: number;
+}
+
+/** Passkeys enregistrees ; exige la preuve d'acces courante (session ou jeton). */
+export async function listPasskeys(base: string, token: string): Promise<PasskeyInfo[]> {
+  const data = await call<{ passkeys: PasskeyInfo[] }>(base, '/auth/passkeys', { token });
+  return data.passkeys;
+}
+
+/** Revoque une passkey ; renvoie la liste restante. */
+export async function revokePasskey(base: string, token: string, id: string): Promise<PasskeyInfo[]> {
+  const data = await call<{ revoked: boolean; passkeys: PasskeyInfo[] }>(base, '/auth/passkeys/revoke', { token, id });
+  return data.passkeys;
+}
+
 /** Ferme la session cote daemon : son jeton cesse d'etre accepte. Sans effet si le daemon est injoignable. */
 export async function closeSession(base: string, token: string): Promise<void> {
   try {

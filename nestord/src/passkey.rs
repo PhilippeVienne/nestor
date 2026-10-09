@@ -51,6 +51,23 @@ struct StoreFile {
     passkeys: Vec<StoredPasskey>,
 }
 
+/// Passkey telle que presentee a l'interface (jamais la cle publique elle-meme).
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PasskeyInfo {
+    /// Identifiant WebAuthn de la credential, en base64url.
+    pub id: String,
+    pub rp_id: String,
+    pub created_at_ms: u64,
+}
+
+/// Identifiant de credential en base64url, tel que serialise par webauthn-rs.
+fn credential_id(passkey: &Passkey) -> String {
+    serde_json::to_value(passkey.cred_id())
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
 enum Ceremony {
     Register { state: PasskeyRegistration, rp_id: String },
     Login { state: PasskeyAuthentication, rp_id: String },
@@ -169,6 +186,32 @@ impl PasskeyAuth {
         if let Err(err) = saved {
             tracing::error!(?err, "enregistrement des passkeys impossible");
         }
+    }
+
+    /// Passkeys enregistrees, pour l'ecran de gestion de l'interface.
+    pub fn list(&self) -> Vec<PasskeyInfo> {
+        self.store
+            .lock()
+            .unwrap()
+            .passkeys
+            .iter()
+            .map(|p| PasskeyInfo { id: credential_id(&p.passkey), rp_id: p.rp_id.clone(), created_at_ms: p.created_at_ms })
+            .collect()
+    }
+
+    /// Retire une passkey par son identifiant. Les sessions deja ouvertes restent
+    /// valables jusqu'a leur expiration ou une deconnexion : revoquer une passkey ne
+    /// ferme pas l'onglet qui l'a utilisee. Retourne `false` si elle est inconnue.
+    pub fn revoke(&self, id: &str) -> bool {
+        let mut store = self.store.lock().unwrap();
+        let before = store.passkeys.len();
+        store.passkeys.retain(|p| credential_id(&p.passkey) != id);
+        let removed = store.passkeys.len() != before;
+        if removed {
+            self.save(&store);
+            tracing::info!(remaining = store.passkeys.len(), "passkey revoquee");
+        }
+        removed
     }
 
     /// Au moins une passkey est enregistree : `/ws` exige alors une authentification.
@@ -472,6 +515,48 @@ pub async fn logout_handler(State(state): State<Arc<AppState>>, headers: HeaderM
     }
 }
 
+/// Le jeton presente ouvre-t-il l'acces a `/ws` (session par passkey ou jeton d'acces) ?
+/// Seul un client deja authentifie peut voir ou revoquer les passkeys.
+fn caller_authenticated(state: &AppState, passkeys: &PasskeyAuth, token: &str) -> bool {
+    !token.is_empty()
+        && (passkeys.session_valid(token) || state.config.auth.as_ref().is_some_and(|hash| hash.matches(token)))
+}
+
+/// Liste des passkeys enregistrees (`{token}`), pour l'ecran Reglages > Acces au daemon.
+pub async fn passkeys_list_handler(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    if let Err(response) = page_origin(&headers, &state) {
+        return response;
+    }
+    let passkeys = match passkeys() {
+        Ok(passkeys) => passkeys,
+        Err(response) => return response,
+    };
+    if !caller_authenticated(&state, passkeys, text(&body, "token")) {
+        return fail(AuthError::new(401, "authentification requise"));
+    }
+    Json(json!({ "passkeys": passkeys.list() })).into_response()
+}
+
+/// Revoque une passkey (`{token, id}`). Si c'etait la derniere et qu'aucun jeton d'acces
+/// n'est configure, `/ws` redevient libre : le contexte est rediffuse pour le signaler.
+pub async fn passkey_revoke_handler(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    if let Err(response) = page_origin(&headers, &state) {
+        return response;
+    }
+    let passkeys = match passkeys() {
+        Ok(passkeys) => passkeys,
+        Err(response) => return response,
+    };
+    if !caller_authenticated(&state, passkeys, text(&body, "token")) {
+        return fail(AuthError::new(401, "authentification requise"));
+    }
+    let revoked = passkeys.revoke(text(&body, "id"));
+    if revoked {
+        let _ = state.events_tx.send(crate::dashboard::context_event(&state.config, &state.current_place));
+    }
+    Json(json!({ "revoked": revoked, "passkeys": passkeys.list() })).into_response()
+}
+
 pub async fn login_finish_handler(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
     let origin = match page_origin(&headers, &state) {
         Ok(origin) => origin,
@@ -523,6 +608,31 @@ mod tests {
             .do_authentication(Url::parse(origin).unwrap(), options)
             .map_err(|err| AuthError::new(0, format!("{err:?}")))?;
         auth.login_finish(origin, started["id"].as_str().unwrap(), serde_json::to_value(credential).unwrap())
+    }
+
+    #[test]
+    fn liste_et_revocation() {
+        let (auth, code, dir) = fixture("revocation");
+        let mut device = WebauthnAuthenticator::new(SoftPasskey::new(true));
+        assert!(auth.list().is_empty());
+
+        let session = enroll(&auth, &code, &mut device).ok().expect("enrolement");
+        let listed = auth.list();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].rp_id, "localhost");
+        assert!(!listed[0].id.is_empty());
+
+        assert!(!auth.revoke("identifiant-inconnu"));
+        assert!(auth.revoke(&listed[0].id));
+        assert!(!auth.has_any(), "la passkey revoquee ne doit plus compter");
+        assert!(auth.list().is_empty());
+        assert!(!auth.revoke(&listed[0].id), "une seconde revocation ne trouve rien");
+        // La session ouverte avec cette passkey reste valable : c'est documente.
+        assert!(auth.session_valid(&session));
+        // La revocation est persistante.
+        let reloaded = PasskeyAuth::load_from(dir.join("passkeys.json"), dir.join("enroll_code"));
+        assert!(!reloaded.has_any());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -46,7 +46,11 @@ reste accepté, par le lien « Utiliser un jeton d'accès » du même écran.
   pas sur l'adresse Tailscale, et inversement : enrôlez chaque adresse.
 - Les passkeys sont dans `~/.config/nestord/passkeys.json` (clés publiques,
   droits 600). Supprimer ce fichier retire toutes les passkeys.
-- Pas encore d'écran pour lister ou révoquer une passkey une à une.
+- Réglages > Accès au daemon liste les passkeys (domaine, date de création) et
+  permet d'en révoquer une (deux clics : « Révoquer » puis « Confirmer »). Les
+  sessions déjà ouvertes avec elle restent valables jusqu'à leur expiration ou
+  une déconnexion. Si c'était la dernière et qu'aucun jeton d'accès n'est
+  configuré, `/ws` redevient libre.
 
 ## Points d'accès
 
@@ -54,7 +58,9 @@ Appelés par la page (CORS limité aux origines acceptées par `/ws`) :
 `GET /auth/status`, `POST /auth/register/options` (`{code}`),
 `POST /auth/register/finish` (`{id, code, credential}`),
 `POST /auth/login/options`, `POST /auth/login/finish` (`{id, credential}`),
-`POST /auth/logout` (`{token}`).
+`POST /auth/logout` (`{token}`), `POST /auth/passkeys` (`{token}`, liste) et
+`POST /auth/passkeys/revoke` (`{token, id}`). Ces deux derniers exigent une
+preuve d'accès valable (session par passkey ou jeton d'accès).
 Les deux `finish` renvoient `{token}`, à passer à `/ws?token=…`.
 
 Vérification WebAuthn : bibliothèque `webauthn-rs` (`nestord/src/passkey.rs`).

@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
-import { LogOut, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { KeyRound, LogOut, X } from 'lucide-react';
 import type { ConnectorInfo, ContextInfo, NestorSettings, ToolMode } from '../types';
 import type { Auth } from '../auth/useAuth';
+import { listPasskeys, revokePasskey, type PasskeyInfo } from '../auth/passkey';
+import { readCredential } from '../auth/session';
 import { ConnectorsList } from './DashboardPanels';
 import { TokenField } from './TokenField';
 
@@ -135,6 +137,93 @@ const NumberField: React.FC<{
   );
 };
 
+/**
+ * Passkeys enregistrees aupres du daemon, avec revocation en deux gestes (le second
+ * confirme). La liste est relue a chaque ouverture : une autre page a pu en enroler une.
+ */
+const PasskeyList: React.FC<{ base: string }> = ({ base }) => {
+  const [passkeys, setPasskeys] = useState<PasskeyInfo[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const token = readCredential()?.token ?? '';
+    listPasskeys(base, token)
+      .then((list) => !cancelled && setPasskeys(list))
+      .catch((err: unknown) => !cancelled && setError(err instanceof Error ? err.message : 'liste indisponible'));
+    return () => {
+      cancelled = true;
+    };
+  }, [base]);
+
+  const revoke = async (id: string) => {
+    if (confirming !== id) {
+      setConfirming(id);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      setPasskeys(await revokePasskey(base, readCredential()?.token ?? '', id));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'révocation impossible');
+    } finally {
+      setBusy(false);
+      setConfirming(null);
+    }
+  };
+
+  const formatDate = (ms: number) =>
+    new Date(ms).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  return (
+    <div className="flex flex-col gap-2">
+      <h4 className="text-slate-200 inline-flex items-center gap-2">
+        <KeyRound className="w-4 h-4 text-cyan-300" aria-hidden="true" />
+        Passkeys enregistrées{passkeys ? ` (${passkeys.length})` : ''}
+      </h4>
+      {error && <p className="text-[13px] text-rose-300">{error}</p>}
+      {passkeys === null && !error && <p className="text-[13px] text-slate-400">Lecture…</p>}
+      {passkeys?.length === 0 && (
+        <p className="text-[13px] text-amber-200">
+          Aucune passkey : l'accès repose sur le jeton de <span className="font-mono">nestord onboard</span>.
+        </p>
+      )}
+      {passkeys && passkeys.length > 0 && (
+        <ul className="flex flex-col divide-y divide-slate-800 rounded-lg border border-slate-800">
+          {passkeys.map((passkey) => (
+            <li key={passkey.id} className="flex items-center gap-3 px-3 min-h-11">
+              <span className="flex-1 min-w-0">
+                <span className="block text-slate-100 font-mono text-[13px] truncate">{passkey.rp_id}</span>
+                <span className="block text-[12px] text-slate-400">créée le {formatDate(passkey.created_at_ms)}</span>
+              </span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => revoke(passkey.id)}
+                onBlur={() => confirming === passkey.id && setConfirming(null)}
+                className={`h-9 px-3 rounded-lg border text-[13px] font-semibold disabled:opacity-50 ${
+                  confirming === passkey.id
+                    ? 'border-rose-400 bg-rose-500/20 text-rose-100'
+                    : 'border-slate-700 text-slate-300 hover:border-rose-400/70 hover:text-rose-100'
+                }`}
+              >
+                {confirming === passkey.id ? 'Confirmer' : 'Révoquer'}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="text-[13px] text-slate-400">
+        Révoquer une passkey n'interrompt pas les sessions déjà ouvertes avec elle ; elles expirent sous 7 jours ou à la
+        déconnexion.
+      </p>
+    </div>
+  );
+};
+
 /** Ecran « Reglages » : chaque changement est applique a chaud et enregistre par le daemon. */
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   isOpen,
@@ -213,6 +302,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </>
           )}
           <TokenField id="settings-token" onSubmit={auth.submitToken} />
+          {connected && authRequired && <PasskeyList base={auth.daemonUrl} />}
         </Section>
 
         {!settings ? (

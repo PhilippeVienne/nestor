@@ -405,7 +405,7 @@ revu pour faire passer d'abord ce qui n'a besoin d'aucune source nouvelle.
       (lecture TTS par thread dédié, AudioTrack recréé à la fréquence
       annoncée, accusé de fermeture WebSocket, transcriptions `is_final`),
       puis committer.
-- [ ] Mettre `mobile/README.md` à jour : la voix est Piper à 22 050 Hz, la
+- [x] Mettre `mobile/README.md` à jour : la voix est Piper à 22 050 Hz, la
       fréquence vient du champ `sample_rate` de chaque `audio_chunk`, pas
       d'une constante.
 - [ ] Le filet de sécurité « outils restés ouverts » côté mobile est sans
@@ -414,14 +414,14 @@ revu pour faire passer d'abord ce qui n'a besoin d'aucune source nouvelle.
 
 ### Étape B — Dette courte
 
-- [ ] `web/src/hooks/useNestorWebSocket.ts` : le `useCallback` signalé par
+- [x] `web/src/hooks/useNestorWebSocket.ts` : le `useCallback` signalé par
       `oxlint` (dépendances manquantes) peut figer d'anciennes closures ;
       corriger, puis traiter les cinq autres avertissements.
-- [ ] Automatiser le test d'annulation de mission décrit dans
+- [x] Automatiser le test d'annulation de mission décrit dans
       `.agent/reponse-annulation-mission-ui.md` (commande longue, annulation,
       aucun outil laissé ouvert).
-- [ ] Écran de liste et de révocation des passkeys (`docs/passkey.md`).
-- [ ] Dépoussiérer `.agents/INITIAL-*.md`, `.agents/REMOTE-AUDIO-SPEC.md`,
+- [x] Écran de liste et de révocation des passkeys (`docs/passkey.md`).
+- [x] Dépoussiérer `.agents/INITIAL-*.md`, `.agents/REMOTE-AUDIO-SPEC.md`,
       `docs/audio-protocol.md` et `nestord/README.md`, qui parlent encore
       d'Antigravity comme front et de Kokoro à 24 kHz.
 
