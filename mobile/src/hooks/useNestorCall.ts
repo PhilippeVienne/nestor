@@ -16,6 +16,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
   time: string;
+  /** Reponse encore en cours d'ecriture : le prochain evenement la remplace. */
+  partial?: boolean;
 }
 
 /** Demande en attente d'une reponse de l'utilisateur (juge ou connecteur externe). */
@@ -95,12 +97,14 @@ export function useNestorCall() {
       const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
       setMessages((prev) => {
-        if (e.isPartial && prev.length > 0 && prev[prev.length - 1].role === e.role) {
-          // Update last partial message
+        const last = prev.length > 0 ? prev[prev.length - 1] : undefined;
+        if (last?.partial && last.role === e.role) {
+          // Update last partial message (the final event closes it)
           const updated = [...prev];
           updated[updated.length - 1] = {
-            ...updated[updated.length - 1],
+            ...last,
             text: e.text,
+            partial: e.isPartial,
           };
           return updated;
         }
@@ -117,6 +121,7 @@ export function useNestorCall() {
             role: e.role,
             text: e.text,
             time: timeStr,
+            partial: e.isPartial,
           },
         ];
       });

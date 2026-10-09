@@ -1,6 +1,7 @@
 package com.nestor.assistant.telecom
 
 import android.net.Uri
+import android.os.Build
 import android.telecom.CallAudioState
 import android.telecom.Connection
 import android.telecom.DisconnectCause
@@ -16,7 +17,9 @@ class NestorConnection(
     }
 
     init {
-        connectionProperties = PROPERTY_SELF_MANAGED
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            connectionProperties = PROPERTY_SELF_MANAGED
+        }
         audioModeIsVoip = true
         setCallerDisplayName("Nestor", TelecomManager.PRESENTATION_ALLOWED)
         setAddress(Uri.parse("tel:nestor"), TelecomManager.PRESENTATION_ALLOWED)

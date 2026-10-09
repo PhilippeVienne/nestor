@@ -40,8 +40,10 @@ import okhttp3.WebSocketListener
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
 import org.json.JSONObject
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.sqrt
 
 class NestorCallManager private constructor(private val context: Context) {
@@ -110,7 +112,15 @@ class NestorCallManager private constructor(private val context: Context) {
 
     // Audio recording & playback
     private var audioRecord: AudioRecord? = null
-    private var audioTrack: AudioTrack? = null
+    @Volatile private var audioTrack: AudioTrack? = null
+
+    // Un segment TTS (une phrase entiere) depasse le tampon de l'AudioTrack : il est ecrit en
+    // mode bloquant par un thread dedie, pour ne pas retenir le thread du WebSocket.
+    private class PcmChunk(val bytes: ByteArray, val sampleRate: Int)
+    private val playbackQueue = LinkedBlockingQueue<PcmChunk>()
+    private var playbackThread: Thread? = null
+    // Incremente a chaque vidage de la lecture : le segment en cours d'ecriture est abandonne.
+    private val playbackGen = AtomicInteger(0)
 
     // Fin de lecture estimee de la voix de Nestor : le micro est envoye en continu jusque-la
     // (le daemon annule l'echo avec son signal de reference, il lui faut un flux sans trous).
@@ -282,9 +292,11 @@ class NestorCallManager private constructor(private val context: Context) {
     fun setSpeakerphoneOn(on: Boolean) {
         try {
             audioManager.isSpeakerphoneOn = on
-            activeConnection?.setAudioRoute(
-                if (on) CallAudioState.ROUTE_SPEAKER else CallAudioState.ROUTE_EARPIECE
-            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                activeConnection?.setAudioRoute(
+                    if (on) CallAudioState.ROUTE_SPEAKER else CallAudioState.ROUTE_EARPIECE
+                )
+            }
             if (on) {
                 releaseProximityLock()
             } else {
@@ -339,33 +351,18 @@ class NestorCallManager private constructor(private val context: Context) {
         try {
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
 
-            // Setup AudioTrack for TTS / Kokoro playback (24kHz Mono PCM)
-            val minTrackBufferSize = AudioTrack.getMinBufferSize(
-                SAMPLE_RATE_PLAYBACK,
-                AudioFormat.CHANNEL_OUT_MONO,
-                AudioFormat.ENCODING_PCM_16BIT
-            )
-
-            val audioAttributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .build()
-
-            val audioFormat = AudioFormat.Builder()
-                .setSampleRate(SAMPLE_RATE_PLAYBACK)
-                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                .build()
-
-            audioTrack = AudioTrack.Builder()
-                .setAudioAttributes(audioAttributes)
-                .setAudioFormat(audioFormat)
-                .setBufferSizeInBytes(minTrackBufferSize * 4)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .build()
-
-            audioTrack?.play()
+            // Setup AudioTrack for TTS playback (Mono PCM, recreated if the daemon announces another rate)
+            audioTrack = createAudioTrack(SAMPLE_RATE_PLAYBACK)
             isPlaying.set(true)
+            playbackQueue.clear()
+            playbackThread = Thread({ playbackLoop() }, "Nestor-AudioTrack-Thread").apply { start() }
+
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                Log.e(TAG, "Permission micro non accordee, capture audio impossible")
+                return
+            }
 
             // Setup AudioRecord for 16kHz Mono Mic capture
             val minRecBufferSize = AudioRecord.getMinBufferSize(
@@ -411,6 +408,76 @@ class NestorCallManager private constructor(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error setting up audio hardware", e)
         }
+    }
+
+    private fun createAudioTrack(sampleRate: Int): AudioTrack {
+        val minTrackBufferSize = AudioTrack.getMinBufferSize(
+            sampleRate,
+            AudioFormat.CHANNEL_OUT_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .build()
+
+        val audioFormat = AudioFormat.Builder()
+            .setSampleRate(sampleRate)
+            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+            .build()
+
+        return AudioTrack.Builder()
+            .setAudioAttributes(audioAttributes)
+            .setAudioFormat(audioFormat)
+            .setBufferSizeInBytes(minTrackBufferSize * 4)
+            .setTransferMode(AudioTrack.MODE_STREAM)
+            .build()
+            .apply { play() }
+    }
+
+    private fun playbackLoop() {
+        while (isPlaying.get()) {
+            val chunk = try {
+                playbackQueue.take()
+            } catch (e: InterruptedException) {
+                break
+            }
+            try {
+                val gen = playbackGen.get()
+                var track = audioTrack ?: continue
+                // La frequence depend de la voix chargee par le daemon (22 050 Hz pour Piper).
+                if (track.sampleRate != chunk.sampleRate) {
+                    track.stop()
+                    track.release()
+                    track = createAudioTrack(chunk.sampleRate)
+                    audioTrack = track
+                    Log.d(TAG, "AudioTrack recreated at ${chunk.sampleRate} Hz")
+                }
+                // Ecriture par tranches de ~100 ms, pour qu'une interruption prenne effet aussitot.
+                val sliceBytes = chunk.sampleRate / 10 * 2
+                var offset = 0
+                while (offset < chunk.bytes.size && isPlaying.get() && gen == playbackGen.get()) {
+                    val written = track.write(chunk.bytes, offset, minOf(sliceBytes, chunk.bytes.size - offset))
+                    if (written <= 0) break
+                    offset += written
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error playing audio bytes", e)
+            }
+        }
+    }
+
+    /** Vide la lecture en cours et les segments en attente (barge-in, interruption vocale). */
+    private fun flushPlayback() {
+        playbackEndMs = 0L
+        gateBypassUntilMs = 0L
+        playbackGen.incrementAndGet()
+        playbackQueue.clear()
+        audioTrack?.pause()
+        audioTrack?.flush()
+        audioTrack?.play()
     }
 
     private fun recordLoop() {
@@ -495,6 +562,10 @@ class NestorCallManager private constructor(private val context: Context) {
             recordThread?.interrupt()
             recordThread = null
 
+            playbackThread?.interrupt()
+            playbackThread = null
+            playbackQueue.clear()
+
             audioRecord?.stop()
             audioRecord?.release()
             audioRecord = null
@@ -523,12 +594,8 @@ class NestorCallManager private constructor(private val context: Context) {
 
     fun bargeIn() {
         try {
-            playbackEndMs = 0L
-            gateBypassUntilMs = 0L
             // Instantly clear AudioTrack playback buffer
-            audioTrack?.pause()
-            audioTrack?.flush()
-            audioTrack?.play()
+            flushPlayback()
 
             // Send barge_in JSON to daemon
             val json = JSONObject().apply {
@@ -682,10 +749,14 @@ class NestorCallManager private constructor(private val context: Context) {
 
                 override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                     Log.d(TAG, "WebSocket closing: $code $reason")
+                    // Sans cet accuse de reception, OkHttp n'appelle jamais onClosed.
+                    webSocket.close(1000, null)
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     Log.d(TAG, "WebSocket closed: $code $reason")
+                    // Un socket deja remplace ou ferme par endCall() ne doit pas couper l'appel courant.
+                    if (webSocket !== this@NestorCallManager.webSocket) return
                     if (isCallActive) {
                         endCall()
                     }
@@ -693,7 +764,13 @@ class NestorCallManager private constructor(private val context: Context) {
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                     Log.e(TAG, "WebSocket failure", t)
-                    eventListener?.onCallStateChanged("ERROR", "Connexion perdue avec le serveur")
+                    if (webSocket !== this@NestorCallManager.webSocket) return
+                    // L'appel est termine : sans cela il resterait actif sans serveur, et
+                    // startCall() refuserait toute nouvelle tentative.
+                    handleConnectionFailed(
+                        if (response != null) "Connexion refusée par le serveur (HTTP ${response.code})"
+                        else "Connexion perdue avec le serveur"
+                    )
                 }
             })
         } catch (e: Exception) {
@@ -734,7 +811,8 @@ class NestorCallManager private constructor(private val context: Context) {
                 "transcript" -> {
                     val role = obj.optString("role", "assistant")
                     val transcriptText = obj.optString("text", "")
-                    val isPartial = obj.optBoolean("is_partial", false)
+                    // Le daemon envoie le texte cumule de la reponse, avec `is_final` faux tant qu'elle s'ecrit.
+                    val isPartial = !obj.optBoolean("is_final", true)
                     eventListener?.onTranscript(role, transcriptText, isPartial)
                 }
                 "tool_call" -> {
@@ -745,11 +823,7 @@ class NestorCallManager private constructor(private val context: Context) {
                 }
                 "interrupt" -> {
                     // Interruption vocale detectee par le daemon : on vide la lecture en cours.
-                    playbackEndMs = 0L
-                    gateBypassUntilMs = 0L
-                    audioTrack?.pause()
-                    audioTrack?.flush()
-                    audioTrack?.play()
+                    flushPlayback()
                     val rms = obj.optDouble("rms", Double.NaN)
                     eventListener?.onInterrupt(if (rms.isNaN()) null else rms.toFloat())
                 }
@@ -790,7 +864,7 @@ class NestorCallManager private constructor(private val context: Context) {
                         val chunkMs = pcmBytes.size / 2 * 1000L / rate
                         playbackEndMs = maxOf(playbackEndMs, System.currentTimeMillis()) + chunkMs
                         gateBypassUntilMs = playbackEndMs + 1500
-                        playAudioBytes(pcmBytes)
+                        playAudioBytes(pcmBytes, rate)
                     }
                 }
                 "backend_status" -> {
@@ -808,12 +882,8 @@ class NestorCallManager private constructor(private val context: Context) {
     private fun optStringOrNull(obj: JSONObject, key: String): String? =
         if (obj.has(key) && !obj.isNull(key)) obj.optString(key) else null
 
-    private fun playAudioBytes(bytes: ByteArray) {
+    private fun playAudioBytes(bytes: ByteArray, sampleRate: Int = SAMPLE_RATE_PLAYBACK) {
         if (!isPlaying.get() || audioTrack == null) return
-        try {
-            audioTrack?.write(bytes, 0, bytes.size, AudioTrack.WRITE_NON_BLOCKING)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error playing audio bytes", e)
-        }
+        playbackQueue.offer(PcmChunk(bytes, sampleRate))
     }
 }

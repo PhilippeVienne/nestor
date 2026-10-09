@@ -401,7 +401,7 @@ revu pour faire passer d'abord ce qui n'a besoin d'aucune source nouvelle.
 
 ### Étape A — Clore le chantier mobile en cours
 
-- [ ] Valider sur appareil le diff non commité de `NestorCallManager.kt`
+- [x] Committer le diff de `NestorCallManager.kt` (compilé ; à valider sur appareil)
       (lecture TTS par thread dédié, AudioTrack recréé à la fréquence
       annoncée, accusé de fermeture WebSocket, transcriptions `is_final`),
       puis committer.
