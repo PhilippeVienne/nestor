@@ -94,12 +94,11 @@ curl -sI https://kanto.felis-ionian.ts.net/ | head -1                           
 tailscale funnel status                            # rien : pas d'exposition publique par Tailscale
 ```
 
-## Variante provisoire
+## Historique
 
-Tant que le DNS partagé n'est pas déclaré, l'ancienne publication
-`https://kanto.felis-ionian.ts.net:8443` (`tailscale serve`, chemins `/`, `/ws`,
-`/auth`, `/location`) reste en place et fonctionne ; elle sera retirée ensuite
-(`tailscale serve --https=8443 off`).
+La première publication, par `tailscale serve --https=8443` sur
+`kanto.felis-ionian.ts.net:8443`, a été retirée le 2026-10-09 une fois
+`nestor.vienne.me` validé ; `tailscale serve` n'est plus utilisé pour Nestor.
 
 ## Reste à faire
 

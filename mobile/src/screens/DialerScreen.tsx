@@ -157,7 +157,7 @@ export const DialerScreen: React.FC<DialerScreenProps> = ({ onStartCall, isConne
     { label: 'Émulateur', url: 'ws://10.0.2.2:8340/ws' },
     { label: 'Localhost', url: 'ws://127.0.0.1:8340/ws' },
     { label: 'Wi-Fi', url: 'ws://192.168.1.50:8340/ws' },
-    { label: 'Tailscale', url: 'wss://kanto.felis-ionian.ts.net:8443/ws' },
+    { label: 'Tailscale', url: 'wss://nestor.vienne.me/ws' },
   ];
 
   let host = serverUrl;
