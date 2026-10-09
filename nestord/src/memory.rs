@@ -255,6 +255,18 @@ impl MemoryStore {
         Ok(changed > 0)
     }
 
+    /// Identifiant du fait valide portant ce titre (normalise) dans ce contexte.
+    pub fn find_by_title(&self, context: &str, title: &str) -> Result<Option<i64>> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn
+            .query_row(
+                "SELECT id FROM nodes WHERE context = ?1 AND title_norm = ?2 AND forgotten = 0 AND valid_until IS NULL",
+                params![context, normalize_title(title)],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
     pub fn get(&self, id: i64) -> Result<Option<Node>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(&format!("{SELECT_NODE} FROM nodes WHERE id = ?1 AND forgotten = 0"))?;

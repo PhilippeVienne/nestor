@@ -169,10 +169,27 @@ Fait :
 - Consigne de prompt : écrire les faits durables, chercher avant de répondre
   sur le passé, oublier sur demande, contredire par `replaces`.
 
+- Capture par mission de fond (`nestord/src/capture.rs`) : les tours de
+  conversation sont mis en tampon ; quand un lot est mûr (au moins
+  `min_turns` tours puis `idle_minutes` de calme, ou `max_turns`, ou
+  `max_chars`), un sous-agent `claude` **sans outil** (`capture_model`,
+  haiku par défaut) en extrait les faits durables en JSON, écrits par la
+  règle de dédoublonnage de `memory_write` avec `source = capture:<instant>`.
+  Un `replaces_title` périme le fait contredit. La consigne exclut positions,
+  horaires ponctuels, mails et rendez-vous. Un seul archivage à la fois.
+
+  ```toml
+  [memory]
+  capture = true
+  capture_model = "haiku"
+  min_turns = 4
+  max_turns = 12
+  idle_minutes = 5
+  max_chars = 6000
+  ```
+
 Reste :
 
-- Capture par mission de fond des faits d'un tour de conversation (§5) : pour
-  l'instant seule la session écrit, explicitement.
 - Hygiène périodique (archivage des faits jamais rappelés, faibles et vieux).
 - Vecteurs : la recherche est lexicale seulement.
 - Aucun écran dans l'interface web ; `memory_search` est le seul accès.

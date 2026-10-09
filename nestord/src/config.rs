@@ -44,6 +44,8 @@ pub struct Config {
     pub google: GoogleConfig,
     /// Veille nocturne et reveil (cf. `sleep.rs`).
     pub sleep: SleepConfig,
+    /// Memoire longue : capture des faits de conversation (cf. `capture.rs`).
+    pub memory: MemoryConfig,
     /// Jeton partage exige pour se connecter a `/ws` (query `?token=...`).
     /// `NESTORD_AUTH_TOKEN` a priorite. Absent (defaut) : pas de verification,
     /// tolerable tant que nestord n'ecoute que sur `127.0.0.1` - a definir
@@ -82,6 +84,7 @@ impl Default for Config {
             power: PowerConfig::default(),
             google: GoogleConfig::default(),
             sleep: SleepConfig::default(),
+            memory: MemoryConfig::default(),
             auth_token: None,
             auth_token_sha256: None,
             allowed_origins: Vec::new(),
@@ -108,6 +111,28 @@ pub struct GoogleConfig {
 impl Default for GoogleConfig {
     fn default() -> Self {
         Self { client_id: None, client_secret: None, calendar_ids: vec!["primary".to_string()], poll_minutes: 5, horizon_hours: 36 }
+    }
+}
+
+/// Memoire longue (`memory.rs`, `capture.rs`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct MemoryConfig {
+    /// Archiver les faits des conversations par un sous-agent de fond.
+    pub capture: bool,
+    /// Modele du sous-agent d'archivage (alias du CLI : haiku, sonnet, opus).
+    pub capture_model: String,
+    /// Lot mur : au moins `min_turns` tours et `idle_minutes` de calme, ou `max_turns`.
+    pub min_turns: usize,
+    pub max_turns: usize,
+    pub idle_minutes: u64,
+    /// Lot lourd : archive sans attendre au-dela de ce volume.
+    pub max_chars: usize,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self { capture: true, capture_model: "haiku".to_string(), min_turns: 4, max_turns: 12, idle_minutes: 5, max_chars: 6_000 }
     }
 }
 

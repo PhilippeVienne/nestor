@@ -21,6 +21,7 @@ mod protocol;
 mod settings;
 mod sleep;
 mod calendar;
+mod capture;
 mod location;
 mod power;
 mod proactive;
@@ -162,6 +163,7 @@ Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) 
     power::spawn(events_tx.clone(), config.clone(), state.missions.clone(), state.current_place.clone());
     calendar::spawn(events_tx.clone(), config.clone(), state.current_place.clone());
     sleep::spawn(events_tx.clone(), config.clone(), state.current_place.clone());
+    capture::spawn(events_tx.clone(), config.clone());
     proactive::spawn(
         events_tx.clone(),
         brain.clone(),
