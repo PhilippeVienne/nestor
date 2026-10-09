@@ -19,6 +19,7 @@ import { NestorCall } from '../native/NestorCall';
 import { isStandbyEnabled, loadConnection, saveConnection, saveStandbyEnabled, splitTokenFromUrl } from '../storage/connection';
 import { isSharingActive, isSharingEnabled, startSharing, stopSharing } from '../location/sharing';
 import { alpha, colors, fonts, radius } from '../theme';
+import { probeDaemon, type ReachResult } from '../native/reachability';
 
 interface DialerScreenProps {
   onStartCall: (serverUrl: string, token?: string) => void;
@@ -145,11 +146,29 @@ export const DialerScreen: React.FC<DialerScreenProps> = ({ onStartCall, isConne
     }
   };
 
-  const handleStart = () => {
+  // Par ou passe la connexion : sonde au chargement, a chaque changement d'adresse, et
+  // avant un appel, pour dire « activez Tailscale » plutot que d'echouer en silence.
+  const [reach, setReach] = useState<ReachResult | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const url = splitTokenFromUrl(serverUrl, token).url;
+    const timer = setTimeout(() => {
+      probeDaemon(url).then((result) => !cancelled && setReach(result));
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [serverUrl, token]);
+
+  const handleStart = async () => {
     const connection = splitTokenFromUrl(serverUrl, token);
     setServerUrl(connection.url);
     setToken(connection.token);
     saveConnection(connection.url, connection.token);
+    const result = await probeDaemon(connection.url);
+    setReach(result);
+    if (result.reach !== 'tailnet') return;
     onStartCall(connection.url, connection.token);
   };
 
@@ -194,6 +213,12 @@ export const DialerScreen: React.FC<DialerScreenProps> = ({ onStartCall, isConne
           )}
           <Text style={styles.callButtonText}>{isConnecting ? statusMessage || 'Connexion…' : 'Appeler Nestor'}</Text>
         </TouchableOpacity>
+        {reach && (
+          <View style={styles.reachRow}>
+            <View style={[styles.reachDot, reach.reach === 'tailnet' ? styles.reachDotOk : reach.reach === 'public' ? styles.reachDotWarn : styles.reachDotBad]} />
+            <Text style={[styles.reachText, reach.reach === 'tailnet' ? styles.reachTextOk : styles.reachTextWarn]}>{reach.note}</Text>
+          </View>
+        )}
 
         {/* Services hors appel */}
         <View style={styles.card}>
@@ -325,6 +350,28 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
+  reachRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 6,
+    marginTop: -4,
+  },
+  reachDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  reachDotOk: { backgroundColor: colors.ok400 },
+  reachDotWarn: { backgroundColor: colors.alert400 },
+  reachDotBad: { backgroundColor: colors.danger400 },
+  reachText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  reachTextOk: { color: colors.ivory500 },
+  reachTextWarn: { color: colors.alert300 },
   card: {
     backgroundColor: alpha.ink(0.7),
     borderRadius: radius.card,

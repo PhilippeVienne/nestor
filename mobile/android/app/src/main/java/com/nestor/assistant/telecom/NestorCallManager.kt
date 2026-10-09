@@ -831,8 +831,12 @@ class NestorCallManager private constructor(private val context: Context) {
                     // L'appel est termine : sans cela il resterait actif sans serveur, et
                     // startCall() refuserait toute nouvelle tentative.
                     handleConnectionFailed(
-                        if (response != null) "Connexion refusée par le serveur (HTTP ${response.code})"
-                        else "Connexion perdue avec le serveur"
+                        when (response?.code) {
+                            null -> "Connexion perdue avec le serveur. Tailscale est-il connecté ?"
+                            // La page publique a repondu a la place du daemon : hors du tailnet.
+                            200 -> "Hors du tailnet : activez Tailscale pour joindre Nestor."
+                            else -> "Connexion refusée par le serveur (HTTP ${response.code})"
+                        }
                     )
                 }
             })

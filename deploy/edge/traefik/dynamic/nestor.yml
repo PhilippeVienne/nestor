@@ -4,6 +4,18 @@
 #   le timer nestor-edge-cert), vers le service que `tailscale serve` publiait sur le 443.
 http:
   middlewares:
+    # Limitation de debit par adresse Tailscale sur l'API : connexion, passkeys, position.
+    # 5 requetes par seconde en moyenne, rafale de 20 : large pour un usage normal, bloquant
+    # pour une enumeration de jetons.
+    nestor-ratelimit:
+      rateLimit:
+        average: 5
+        period: 1s
+        burst: 20
+        sourceCriterion:
+          ipStrategy:
+            depth: 0
+
     # En-tetes de durcissement : HSTS (le nom n'existe qu'en HTTPS), pas d'encadrement
     # par un autre site, pas de devinette de type, referer limite a l'origine.
     nestor-headers:
@@ -19,7 +31,7 @@ http:
       rule: "Host(`nestor.vienne.me`) && (PathPrefix(`/ws`) || PathPrefix(`/auth`) || PathPrefix(`/location`))"
       entryPoints: [websecure]
       service: nestord-api
-      middlewares: [nestor-headers]
+      middlewares: [nestor-ratelimit, nestor-headers]
       tls:
         certResolver: cloudflare
     nestor-ui:

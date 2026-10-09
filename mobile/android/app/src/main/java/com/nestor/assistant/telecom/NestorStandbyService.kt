@@ -165,7 +165,15 @@ class NestorStandbyService : Service() {
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 if (webSocket !== socket) return
                 Log.w(TAG, "veille : echec de connexion", t)
-                scheduleReconnect(if (response != null) "refusé (HTTP ${response.code})" else "daemon injoignable")
+                // Un 200 a la place du 101 : c'est la page publique de Cloudflare qui a repondu,
+                // donc le telephone est hors du tailnet.
+                scheduleReconnect(
+                    when (response?.code) {
+                        null -> "daemon injoignable (Tailscale ?)"
+                        200 -> "hors du tailnet : activez Tailscale"
+                        else -> "refusé (HTTP ${response.code})"
+                    }
+                )
             }
         })
     }
