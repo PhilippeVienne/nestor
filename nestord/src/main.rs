@@ -69,6 +69,14 @@ fn write_mcp_config(mcp_secret: &str) -> anyhow::Result<PathBuf> {
     Ok(path)
 }
 
+/// `~/` en tete d'un chemin de configuration.
+fn shellexpand_home(path: &str) -> String {
+    match path.strip_prefix("~/") {
+        Some(rest) => format!("{}/{rest}", std::env::var("HOME").unwrap_or_else(|_| ".".to_string())),
+        None => path.to_string(),
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -208,6 +216,21 @@ Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, "nestord demarre, WebSocket sur /ws et MCP sur /mcp");
     let server = tokio::spawn(async move { axum::serve(listener, app).await });
+
+    // Interface web construite, servie sur un second port de la boucle locale : c'est lui
+    // que `tailscale serve` publie a la racine, sans jamais exposer `/mcp` ni `/wake`.
+    if let Some(ui_dir) = config.ui_dir.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+        let dir = PathBuf::from(shellexpand_home(ui_dir));
+        if dir.join("index.html").is_file() {
+            let ui_app = Router::new().fallback_service(tower_http::services::ServeDir::new(&dir));
+            let ui_addr: SocketAddr = config.ui_listen.parse()?;
+            let ui_listener = tokio::net::TcpListener::bind(ui_addr).await?;
+            tracing::info!(%ui_addr, dir = %dir.display(), "interface web servie");
+            tokio::spawn(async move { axum::serve(ui_listener, ui_app).await });
+        } else {
+            tracing::warn!(dir = %dir.display(), "ui_dir sans index.html : interface web non servie (npm run build ?)");
+        }
+    }
 
     // Le serveur ecoute : le CLI peut maintenant se connecter a notre MCP.
     let mcp_config = write_mcp_config(&mcp_secret)?;

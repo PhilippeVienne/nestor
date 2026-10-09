@@ -267,6 +267,7 @@ impl MemoryStore {
             .optional()?)
     }
 
+    #[cfg(test)]
     pub fn get(&self, id: i64) -> Result<Option<Node>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(&format!("{SELECT_NODE} FROM nodes WHERE id = ?1 AND forgotten = 0"))?;

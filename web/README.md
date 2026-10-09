@@ -35,8 +35,9 @@ See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rule
 
 À placer dans `web/.env.local` ou devant la commande `vite` :
 
-- `VITE_NESTOR_WS_URL` : adresse du WebSocket du daemon, à la place de
-  `ws://127.0.0.1:8340/ws`. Les points d'accès `/auth/*` sont appelés sur le même
+- `VITE_NESTOR_WS_URL` : adresse du WebSocket du daemon, à la place de la
+  valeur par défaut : `wss://<hôte de la page>/ws` quand la page est servie en
+  HTTPS (Tailscale, cf. `../docs/tailscale.md`), sinon `ws://127.0.0.1:8340/ws`. Les points d'accès `/auth/*` sont appelés sur le même
   hôte. Exemple, pour pointer l'interface sur un daemon de test :
   `VITE_NESTOR_WS_URL=ws://127.0.0.1:8351/ws npx vite --port 5183`.
 - `VITE_NESTOR_TOKEN` : jeton d'accès fourni à la compilation (développement).

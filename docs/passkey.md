@@ -42,8 +42,9 @@ reste accepté, par le lien « Utiliser un jeton d'accès » du même écran.
 - **Nom de domaine obligatoire.** Une passkey est liée au domaine de la page :
   ouvrez l'interface sur `http://localhost:5173`, pas sur `http://127.0.0.1:5173`.
   Hors de la machine, il faut une adresse en HTTPS, déclarée dans
-  `allowed_origins` de `config.toml`. Une passkey créée sur `localhost` ne sert
-  pas sur l'adresse Tailscale, et inversement : enrôlez chaque adresse.
+  `allowed_origins` de `config.toml` (mise en place dans `docs/tailscale.md`).
+  Une passkey créée sur `localhost` ne sert pas sur l'adresse Tailscale, et
+  inversement : enrôlez chaque adresse.
 - Les passkeys sont dans `~/.config/nestord/passkeys.json` (clés publiques,
   droits 600). Supprimer ce fichier retire toutes les passkeys.
 - Réglages > Accès au daemon liste les passkeys (domaine, date de création) et

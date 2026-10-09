@@ -58,6 +58,11 @@ pub struct Config {
     /// Origines web autorisees en plus de la machine locale (ex. l'interface servie via
     /// Tailscale : `["https://kanto.exemple.ts.net:8443"]`).
     pub allowed_origins: Vec<String>,
+    /// Dossier de l'interface web construite (`web/dist`) : nestord le sert alors sur
+    /// `ui_listen`, un second port de la boucle locale sans `/mcp` ni `/wake`, que
+    /// `tailscale serve` publie en HTTPS (cf. `docs/tailscale.md`). Absent : rien n'est servi.
+    pub ui_dir: Option<String>,
+    pub ui_listen: String,
     /// Adresse de l'interface web, pour le lien d'enrolement d'une passkey
     /// (`nestord onboard --passkey`). Un nom de domaine est obligatoire : `localhost`
     /// ou une adresse en HTTPS, jamais une adresse IP.
@@ -88,6 +93,8 @@ impl Default for Config {
             auth_token: None,
             auth_token_sha256: None,
             allowed_origins: Vec::new(),
+            ui_dir: None,
+            ui_listen: "127.0.0.1:8341".to_string(),
             ui_url: "http://localhost:5173".to_string(),
             auth: None,
         }

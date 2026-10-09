@@ -13,6 +13,7 @@ et expose une API WebSocket a l'UI web et a l'appli mobile sur `127.0.0.1:8340/w
 - `../docs/canal-mobile.md` : telephone joignable hors appel (`?client=standby`), sonnerie au reveil.
 - `../docs/memory.md` : memoire longue (SQLite + FTS5), outils `memory_write`, `memory_search`, `memory_forget`.
 - `../docs/visuel.md` : systeme visuel commun au web et au mobile.
+- `../docs/tailscale.md` : nom de domaine et TLS par Tailscale, interface servie par nestord (`ui_dir`).
 
 Endpoints : `/ws` (WebSocket UI) et `/mcp` (serveur MCP consomme par la
 session conversationnelle elle-meme).

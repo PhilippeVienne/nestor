@@ -9,9 +9,21 @@
 const TOKEN_STORAGE_KEY = 'nestor_token';
 const SESSION_STORAGE_KEY = 'nestor_session';
 
-/** Adresse du WebSocket du daemon ; `VITE_NESTOR_WS_URL` remplace la valeur par defaut. */
-export const DEFAULT_WS_URL =
-  (import.meta.env.VITE_NESTOR_WS_URL as string | undefined) || 'ws://127.0.0.1:8340/ws';
+/**
+ * Adresse du WebSocket du daemon. `VITE_NESTOR_WS_URL` l'impose ; sinon, une page
+ * servie en HTTPS ailleurs que sur la machine (Tailscale, cf. docs/tailscale.md)
+ * parle au daemon par sa propre origine, et le developpement local a 127.0.0.1:8340.
+ */
+function defaultWsUrl(): string {
+  const forced = import.meta.env.VITE_NESTOR_WS_URL as string | undefined;
+  if (forced) return forced;
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    return `wss://${window.location.host}/ws`;
+  }
+  return 'ws://127.0.0.1:8340/ws';
+}
+
+export const DEFAULT_WS_URL = defaultWsUrl();
 
 export type CredentialKind = 'session' | 'token' | 'build';
 
