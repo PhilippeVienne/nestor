@@ -8,6 +8,7 @@ const KIND_LABEL: Record<ActivityItem['kind'], string> = {
   voice: 'Voix',
   judge: 'Juge',
   system: 'Système',
+  alert: 'Alerte',
 };
 
 /** Journal d'activite : les evenements du daemon depuis l'ouverture de la page, du plus recent au plus ancien. */

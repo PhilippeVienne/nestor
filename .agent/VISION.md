@@ -428,16 +428,17 @@ revu pour faire passer d'abord ce qui n'a besoin d'aucune source nouvelle.
 ### Étape C — Boucle proactive généralisée
 
 Déplacée avant la position : elle n'a besoin d'aucune source nouvelle et
-c'est elle qui donne à Nestor son initiative.
+c'est elle qui donne à Nestor son initiative. Réalisée le 2026-10-09, voir
+`docs/proactive.md`.
 
-- [ ] Transformer la boucle de `todo.rs` en moteur de règles : tâche de fond
+- [x] Transformer la boucle de `todo.rs` en moteur de règles : tâche de fond
       réveillée à intervalle régulier et à chaque changement de contexte,
       dédoublonnage par événement et par palier, respect des heures calmes,
       jamais pendant une réponse en cours de synthèse.
-- [ ] Règles sans source nouvelle : session `claude` morte ou en mode réduit
+- [x] Règles sans source nouvelle : session `claude` morte ou en mode réduit
       depuis longtemps, mission sans progression, quota au-delà du seuil,
       tâche en retard (reprise de l'existant).
-- [ ] Sortie unique : rapport interne réinjecté dans la conversation ;
+- [x] Sortie unique : rapport interne réinjecté dans la conversation ;
       événement `alert` sur `/ws` pour la traçabilité, affiché dans le
       journal d'activité de l'UI.
 

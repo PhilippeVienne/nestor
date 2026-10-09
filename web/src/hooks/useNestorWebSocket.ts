@@ -498,6 +498,10 @@ export function useNestorWebSocket({
               break;
             }
 
+            case 'alert':
+              pushActivity('alert', data.text);
+              break;
+
             case 'mission': {
               const { id, backend, status: missionStatus, description, summary, progress } = data;
               if (!progress || missionStatus !== 'started') {

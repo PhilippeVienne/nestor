@@ -17,6 +17,7 @@ mod onboard;
 mod passkey;
 mod protocol;
 mod settings;
+mod proactive;
 mod todo;
 mod usage;
 mod ws;
@@ -148,6 +149,14 @@ Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) 
     });
     connectors::init(&config.mcp_servers, config.auth.is_some() || passkey::has_any(), events_tx.clone());
     dashboard::spawn_ticker(events_tx.clone(), config.clone(), state.current_place.clone());
+    proactive::spawn(
+        events_tx.clone(),
+        brain.clone(),
+        config.clone(),
+        todos.clone(),
+        state.missions.clone(),
+        usage.clone(),
+    );
 
     // Les points d'acces de connexion par passkey sont appeles par la page de l'interface
     // (autre port, donc autre origine) : CORS limite aux origines que `/ws` accepte.
@@ -216,8 +225,6 @@ Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) 
     // Idle ; le pipeline audio (quand actif) bascule lui-meme sur Listening.
     #[cfg(not(feature = "full-audio"))]
     let _ = events_tx.send(ServerEvent::State { status: DaemonStatus::Idle });
-
-    todo::spawn_proactive_loop(events_tx.clone(), brain.clone(), config.clone(), todos.clone());
 
     server.await??;
 

@@ -63,6 +63,11 @@ pub fn unregister_client(id: u64) {
     CLIENTS.lock().unwrap().retain(|c| c.id != id);
 }
 
+/// Clients connectes a `/ws` : la boucle proactive se tait quand il n'y en a aucun.
+pub fn client_count() -> usize {
+    CLIENTS.lock().unwrap().len()
+}
+
 pub fn clients_event() -> ServerEvent {
     ServerEvent::Clients { items: CLIENTS.lock().unwrap().clone() }
 }

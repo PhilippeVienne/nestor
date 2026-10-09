@@ -10,6 +10,15 @@ pub enum ServerEvent {
     /// Nestor vient d'etre interrompu a la voix : les clients doivent couper
     /// immediatement leur lecture audio en cours.
     #[cfg_attr(not(feature = "full-audio"), allow(dead_code))]
+    /// Alerte emise par la boucle proactive (`proactive.rs`), deja formulee a
+    /// l'assistant comme rapport interne ; ici pour la tracabilite dans l'UI.
+    Alert {
+        id: u64,
+        /// `mission_stalled`, `session_fallback`, `quota`, `todo_due`…
+        kind: String,
+        text: String,
+        at_ms: u64,
+    },
     Interrupt {
         /// Niveau moyen (RMS) de la parole qui a declenche l'interruption.
         #[serde(skip_serializing_if = "Option::is_none")]

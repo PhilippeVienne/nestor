@@ -200,9 +200,13 @@ impl NestorBrain {
         }
     }
 
-    #[allow(dead_code)]
     pub fn is_fallback(&self) -> bool {
         self.is_fallback.load(Ordering::Relaxed)
+    }
+
+    /// Motif de la derniere bascule en mode reduit.
+    pub fn fallback_reason(&self) -> Option<String> {
+        self.fallback_reason.lock().unwrap().clone()
     }
 
     pub fn clear_pending_user_message(&self) {

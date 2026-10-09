@@ -275,10 +275,9 @@ impl TodoStore {
     }
 }
 
-/// Construit le rapport interne reinjecte dans la conversation, sur le
-/// meme principe qu'un compte rendu de mission (`mission.rs`) : Nestor
-/// l'annonce avec ses propres mots plutot qu'un texte brut pousse au TTS.
-pub fn build_reminder_report(due: &[Todo]) -> String {
+/// Enonce des taches a relancer, repris dans l'alerte de la boucle proactive
+/// (`proactive.rs`) : Nestor l'annonce avec ses propres mots.
+pub fn describe_due(due: &[Todo]) -> String {
     let items: Vec<String> = due
         .iter()
         .map(|t| match (&t.recurrence, t.due_at) {
@@ -287,67 +286,7 @@ pub fn build_reminder_report(due: &[Todo]) -> String {
             (None, None) => t.title.clone(),
         })
         .collect();
-
-    format!(
-        "[Rappel interne : {} tache(s) a relancer aupres de l'utilisateur : {}.] \
-Mentionne-les naturellement, en une ou deux phrases, sans lire une liste a voix haute.",
-        items.len(),
-        items.join(" ; ")
-    )
-}
-
-/// Boucle de fond : verifie periodiquement s'il y a des taches a relancer et,
-/// si quelqu'un est bien connecte pour l'entendre (sinon ce serait du quota
-/// Claude depense pour personne) et qu'on n'est pas en heures calmes,
-/// reinjecte un rappel dans la conversation. C'est la version minimale de la
-/// « boucle proactive » de `.agent/VISION.md` : seulement les taches, pas
-/// encore position/agenda/mails ni canal hors appel.
-pub fn spawn_proactive_loop(
-    events_tx: tokio::sync::broadcast::Sender<crate::protocol::ServerEvent>,
-    brain: std::sync::Arc<crate::brain::NestorBrain>,
-    config: std::sync::Arc<crate::config::Config>,
-    todos: std::sync::Arc<TodoStore>,
-) {
-    const CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
-
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(CHECK_INTERVAL);
-        loop {
-            interval.tick().await;
-
-            if config.quiet_hours.contains(Local::now().time()) {
-                continue;
-            }
-            if events_tx.receiver_count() == 0 {
-                // Personne pour entendre le rappel : on le laisse pour la
-                // prochaine connexion (nudge de debut de conversation).
-                continue;
-            }
-
-            let due = match todos.due_now() {
-                Ok(due) => due,
-                Err(err) => {
-                    tracing::error!(?err, "echec de lecture des taches dues");
-                    continue;
-                }
-            };
-            if due.is_empty() {
-                continue;
-            }
-
-            let ids: Vec<i64> = due.iter().map(|t| t.id).collect();
-            let report = build_reminder_report(&due);
-            tracing::info!(count = due.len(), "relance proactive de taches");
-
-            if let Err(err) = brain.send_internal_report(&report).await {
-                tracing::error!(?err, "echec d'envoi du rappel proactif");
-                continue;
-            }
-            if let Err(err) = todos.mark_notified(&ids) {
-                tracing::error!(?err, "echec de marquage des taches relancees");
-            }
-        }
-    });
+    format!("{} tache(s) a relancer aupres de l'utilisateur : {}", items.len(), items.join(" ; "))
 }
 
 /// Formate une echeance pour l'affichage/prononciation (date locale JJ/MM).

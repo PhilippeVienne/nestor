@@ -111,7 +111,7 @@ export interface JudgeItem {
 /** Ligne du journal d'activite. */
 export interface ActivityItem {
   id: string;
-  kind: 'wake' | 'tool' | 'mission' | 'voice' | 'judge' | 'system';
+  kind: 'wake' | 'tool' | 'mission' | 'voice' | 'judge' | 'system' | 'alert';
   text: string;
   timestamp: Date;
 }
@@ -230,6 +230,14 @@ export type ServerEvent =
       status: ToolCallStatus;
       /** Present quand l'outil est execute par un sous-agent de mission. */
       mission_id?: number;
+    }
+  | {
+      /** Alerte de la boucle proactive, deja transmise a l'assistant qui la formule. */
+      type: 'alert';
+      id: number;
+      kind: string;
+      text: string;
+      at_ms: number;
     }
   | {
       type: 'mission';

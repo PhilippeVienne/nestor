@@ -66,6 +66,16 @@ pub struct MissionRecord {
     /// Derniere activite connue du sous-agent, pour repondre a « ou en est
     /// la mission ? » sans attendre le compte rendu final.
     pub progress: Option<String>,
+    /// Derniere activite connue (epoch ms) : lancement, puis chaque appel d'outil.
+    /// Sert a la boucle proactive pour reperer une mission qui n'avance plus.
+    pub last_activity_ms: u64,
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 pub struct MissionManager {
@@ -136,6 +146,7 @@ impl MissionManager {
             status: MissionStatus::Started,
             summary: None,
             progress: None,
+            last_activity_ms: now_ms(),
         };
 
         self.missions.lock().expect("verrou missions empoisonne").push(record.clone());
@@ -240,6 +251,7 @@ Annonce ce resultat a l'utilisateur en une ou deux phrases.",
         if let Ok(mut missions) = self.missions.lock() {
             if let Some(entry) = missions.iter_mut().find(|m| m.id == id) {
                 entry.progress = Some(activity.clone());
+                entry.last_activity_ms = now_ms();
                 snapshot = Some((entry.backend.clone(), entry.description.clone()));
             }
         }

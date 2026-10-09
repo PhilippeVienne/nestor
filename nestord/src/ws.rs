@@ -69,6 +69,7 @@ fn connection_snapshot(state: &AppState) -> Vec<ServerEvent> {
     events.push(crate::dashboard::clients_event());
     events.push(crate::dashboard::telemetry_event());
     events.push(crate::connectors::event());
+    events.extend(crate::proactive::recent_alerts());
     if let Some(connectors) = crate::connectors::global() {
         events.extend(connectors.pending_events());
     }
@@ -172,6 +173,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, kind: &'static s
     // spam si plusieurs clients se connectent en peu de temps.
     let todos = state.todos.clone();
     let brain_for_nudge = state.brain.clone();
+    let address_form = state.config.address_form.clone();
     tokio::spawn(async move {
         let due = match todos.due_now() {
             Ok(due) => due,
@@ -184,7 +186,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, kind: &'static s
             return;
         }
         let ids: Vec<i64> = due.iter().map(|t| t.id).collect();
-        let report = crate::todo::build_reminder_report(&due);
+        let report = crate::proactive::todo_nudge_report(&due, &address_form);
         if brain_for_nudge.send_internal_report(&report).await.is_ok() {
             let _ = todos.mark_notified(&ids);
         }

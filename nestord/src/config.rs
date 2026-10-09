@@ -36,6 +36,8 @@ pub struct Config {
     /// Serveurs MCP externes relayes par nestord (cf. `connectors.rs`).
     pub mcp_servers: Vec<crate::connectors::McpServerConfig>,
     pub judge: JudgeConfig,
+    /// Boucle proactive : alertes a l'initiative de nestord (cf. `proactive.rs`).
+    pub proactive: ProactiveConfig,
     /// Jeton partage exige pour se connecter a `/ws` (query `?token=...`).
     /// `NESTORD_AUTH_TOKEN` a priorite. Absent (defaut) : pas de verification,
     /// tolerable tant que nestord n'ecoute que sur `127.0.0.1` - a definir
@@ -70,11 +72,42 @@ impl Default for Config {
             barge_in: BargeInConfig::default(),
             mcp_servers: Vec::new(),
             judge: JudgeConfig::default(),
+            proactive: ProactiveConfig::default(),
             auth_token: None,
             auth_token_sha256: None,
             allowed_origins: Vec::new(),
             ui_url: "http://localhost:5173".to_string(),
             auth: None,
+        }
+    }
+}
+
+/// Boucle proactive (`proactive.rs`) : cadence et seuils des regles.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct ProactiveConfig {
+    pub enabled: bool,
+    /// Periode d'evaluation des regles, en secondes (10 au minimum).
+    pub interval_secs: u64,
+    /// Cadence de relance des taches dues, en minutes.
+    pub todo_interval_minutes: u64,
+    /// Mission sans activite au-dela de ce delai : alerte (puis aux paliers 3, 6, 9…).
+    pub mission_stall_minutes: u64,
+    /// Rappel tant que la session reste en mode reduit, a chaque multiple de ce delai.
+    pub fallback_remind_minutes: u64,
+    /// Remplissage du quota Claude (0 a 1) a partir duquel on previent, par tranche de 5 points.
+    pub quota_threshold: f32,
+}
+
+impl Default for ProactiveConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval_secs: 60,
+            todo_interval_minutes: 5,
+            mission_stall_minutes: 10,
+            fallback_remind_minutes: 30,
+            quota_threshold: 0.9,
         }
     }
 }
