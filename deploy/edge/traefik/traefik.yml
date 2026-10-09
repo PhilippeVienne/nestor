@@ -28,4 +28,5 @@ api:
 log:
   level: INFO
 
-accessLog: {}
+# Pas de journal d'acces : l'URL de /ws porte le jeton de session en parametre, il ne doit
+# pas finir dans un fichier. Pour diagnostiquer, l'activer le temps d'un test puis le retirer.
