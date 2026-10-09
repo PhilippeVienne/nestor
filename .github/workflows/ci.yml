@@ -1,0 +1,58 @@
+# Integration continue : ce que les sessions de developpement verifient a la main.
+# Le daemon est teste sans le pipeline audio (CUDA indisponible sur les executeurs).
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  nestord:
+    name: nestord (cargo test, sans audio)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: nestord
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config python3
+      - run: cargo test --no-default-features
+        working-directory: nestord
+      - run: cargo build --no-default-features
+        working-directory: nestord
+
+  web:
+    name: web (tsc, oxlint, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit -p tsconfig.app.json
+      - run: npx oxlint --deny-warnings
+      - run: npm run build
+
+  mobile:
+    name: mobile (tsc)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit

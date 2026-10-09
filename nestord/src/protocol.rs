@@ -19,6 +19,11 @@ pub enum ServerEvent {
         text: String,
         at_ms: u64,
     },
+    /// Sante de l'installation (`health.rs`) : juge, bord Tailscale, certificats, sauvegarde.
+    Health {
+        items: Vec<crate::health::HealthItem>,
+        checked_at_ms: u64,
+    },
     Interrupt {
         /// Niveau moyen (RMS) de la parole qui a declenche l'interruption.
         #[serde(skip_serializing_if = "Option::is_none")]

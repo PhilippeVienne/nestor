@@ -46,6 +46,8 @@ pub struct Config {
     pub sleep: SleepConfig,
     /// Memoire longue : capture des faits de conversation (cf. `capture.rs`).
     pub memory: MemoryConfig,
+    /// Sante de l'installation (cf. `health.rs`).
+    pub health: HealthConfig,
     /// Jeton partage exige pour se connecter a `/ws` (query `?token=...`).
     /// `NESTORD_AUTH_TOKEN` a priorite. Absent (defaut) : pas de verification,
     /// tolerable tant que nestord n'ecoute que sur `127.0.0.1` - a definir
@@ -90,6 +92,7 @@ impl Default for Config {
             google: GoogleConfig::default(),
             sleep: SleepConfig::default(),
             memory: MemoryConfig::default(),
+            health: HealthConfig::default(),
             auth_token: None,
             auth_token_sha256: None,
             allowed_origins: Vec::new(),
@@ -118,6 +121,42 @@ pub struct GoogleConfig {
 impl Default for GoogleConfig {
     fn default() -> Self {
         Self { client_id: None, client_secret: None, calendar_ids: vec!["primary".to_string()], poll_minutes: 5, horizon_hours: 36 }
+    }
+}
+
+/// Sante de l'installation (`health.rs`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct HealthConfig {
+    pub enabled: bool,
+    pub interval_minutes: u64,
+    /// Nom public de Nestor (`https://nestor.vienne.me`) et adresse Tailscale qui le sert
+    /// (`100.84.235.85:443`) : l'API est sondee par ce nom, et les certificats lus.
+    pub edge_url: Option<String>,
+    pub edge_addr: Option<String>,
+    pub cert_names: Vec<String>,
+    /// Horodatage ecrit par la sauvegarde (`deploy/backup/nestor-backup.sh`).
+    pub backup_stamp: String,
+}
+
+impl Default for HealthConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval_minutes: 5,
+            edge_url: None,
+            edge_addr: None,
+            cert_names: Vec::new(),
+            backup_stamp: "~/.local/state/nestord/last-backup".to_string(),
+        }
+    }
+}
+
+/// `~/` en tete d'un chemin de configuration.
+pub fn expand_home(path: &str) -> String {
+    match path.strip_prefix("~/") {
+        Some(rest) => format!("{}/{rest}", std::env::var("HOME").unwrap_or_else(|_| ".".to_string())),
+        None => path.to_string(),
     }
 }
 

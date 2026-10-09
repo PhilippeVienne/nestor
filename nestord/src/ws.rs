@@ -65,6 +65,7 @@ fn connection_snapshot(state: &AppState) -> Vec<ServerEvent> {
     events.push(crate::dashboard::telemetry_event());
     events.push(crate::connectors::event());
     events.extend(crate::proactive::recent_alerts());
+    events.push(crate::health::event());
     if let Some(connectors) = crate::connectors::global() {
         events.extend(connectors.pending_events());
     }
@@ -348,6 +349,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, kind: &'static s
 fn standby_relevant(event: &ServerEvent) -> bool {
     matches!(
         event,
-        ServerEvent::Alert { .. } | ServerEvent::Context { .. } | ServerEvent::Mission { .. } | ServerEvent::BackendStatus { .. }
+        ServerEvent::Alert { .. } | ServerEvent::Context { .. } | ServerEvent::Mission { .. } | ServerEvent::BackendStatus { .. } | ServerEvent::Health { .. }
     )
 }

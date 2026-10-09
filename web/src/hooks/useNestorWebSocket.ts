@@ -9,6 +9,7 @@ import type {
   ConnectorInfo,
   JudgeItem,
   ActivityItem,
+  HealthInfo,
   NestorSettings,
   VoiceMeter,
   DaemonStatus,
@@ -76,6 +77,7 @@ export function useNestorWebSocket({
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [clients, setClients] = useState<ClientInfo[]>([]);
   const [telemetry, setTelemetry] = useState<TelemetryInfo | null>(null);
+  const [health, setHealth] = useState<HealthInfo | null>(null);
   const [connectors, setConnectors] = useState<ConnectorInfo[]>([]);
   const [toolApprovals, setToolApprovals] = useState<ToolApprovalItem[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
@@ -500,6 +502,10 @@ export function useNestorWebSocket({
               break;
             }
 
+            case 'health':
+              setHealth({ items: data.items, checked_at_ms: data.checked_at_ms });
+              break;
+
             case 'alert': {
               // La cle inclut l'horodatage : un daemon redemarre repart de l'identifiant 1.
               const key = `${data.id}:${data.at_ms}`;
@@ -910,6 +916,7 @@ export function useNestorWebSocket({
     deleteTodo,
     clients,
     telemetry,
+    health,
     connectors,
     setToolMode,
     toolApprovals,

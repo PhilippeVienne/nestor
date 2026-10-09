@@ -1,0 +1,7 @@
+[Unit]
+Description=Nestor : sauvegarde chiffree (restic)
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/github.com/PhilippeVienne/nestor/deploy/backup/nestor-backup.sh

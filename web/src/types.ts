@@ -89,6 +89,18 @@ export interface TelemetryInfo {
   tts_ms?: number;
 }
 
+/** Element de sante de l'installation (cf. nestord/src/health.rs). */
+export interface HealthItem {
+  name: string;
+  status: 'ok' | 'warn' | 'down';
+  detail: string;
+}
+
+export interface HealthInfo {
+  items: HealthItem[];
+  checked_at_ms: number;
+}
+
 export type ToolMode = 'read' | 'confirm' | 'off';
 
 export interface ConnectorTool {
@@ -258,6 +270,7 @@ export type ServerEvent =
       /** Present quand l'outil est execute par un sous-agent de mission. */
       mission_id?: number;
     }
+  | ({ type: 'health' } & HealthInfo)
   | {
       /** Alerte de la boucle proactive, deja transmise a l'assistant qui la formule. */
       type: 'alert';

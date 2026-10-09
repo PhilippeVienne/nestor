@@ -87,6 +87,8 @@ pub struct Observation {
     pub place: Option<String>,
     /// Rendez-vous a venir, a heure fixe (`calendar.rs`).
     pub events: Vec<crate::calendar::Event>,
+    /// Elements de l'installation hors service (`health.rs`), « nom : detail ».
+    pub health_down: Vec<String>,
 }
 
 /// Memoire des alertes deja emises, pour ne pas repeter la meme.
@@ -196,6 +198,19 @@ pub fn evaluate(obs: &Observation, cfg: &ProactiveConfig, dedup: &mut Dedup) -> 
         _ => {}
     }
 
+    // Sante : une alerte par element hors service, oubliee quand il revient.
+    dedup.emitted.retain(|key| match key.strip_prefix("health:") {
+        Some(name) => obs.health_down.iter().any(|d| d.split(" : ").next() == Some(name)),
+        None => true,
+    });
+    for down in &obs.health_down {
+        let name = down.split(" : ").next().unwrap_or(down);
+        let key = format!("health:{name}");
+        if dedup.first_time(&key) {
+            alerts.push(Alert { key, kind: "health", text: format!("{down} (installation de Nestor)") });
+        }
+    }
+
     // Rendez-vous : partir a temps (lieu connu) ou rappel (visio). Les cles des
     // rendez-vous passes sont oubliees.
     dedup.emitted.retain(|key| match key.strip_prefix("event:") {
@@ -275,6 +290,7 @@ fn observe(
         worst_utilization: usage.worst_utilization(),
         place: current_place.lock().unwrap().clone(),
         events: crate::calendar::upcoming(),
+        health_down: crate::health::down_items(),
     }
 }
 
@@ -542,6 +558,19 @@ mod tests {
         assert_eq!(keys(&reminder), ["event:30000000:reminder"]);
         assert!(reminder[0].text.contains("Point equipe") && reminder[0].text.contains("9 minutes"));
         assert!(evaluate(&obs(495), &cfg(), &mut dedup).is_empty());
+    }
+
+    #[test]
+    fn element_hors_service_signale_une_fois_puis_oublie() {
+        let mut dedup = Dedup::default();
+        let down = Observation { now_ms: MIN, health_down: vec!["Juge (Ollama) : injoignable".into()], ..Default::default() };
+        let first = evaluate(&down, &cfg(), &mut dedup);
+        assert_eq!(keys(&first), ["health:Juge (Ollama)"]);
+        assert!(first[0].text.contains("Juge (Ollama) : injoignable"));
+        assert!(evaluate(&down, &cfg(), &mut dedup).is_empty(), "pas de repetition");
+        let back = Observation { now_ms: MIN, ..Default::default() };
+        assert!(evaluate(&back, &cfg(), &mut dedup).is_empty());
+        assert_eq!(keys(&evaluate(&down, &cfg(), &mut dedup)), ["health:Juge (Ollama)"], "retombe en panne : nouvelle alerte");
     }
 
     #[test]

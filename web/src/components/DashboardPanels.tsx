@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Trash2, BellRing, CalendarClock, MapPin, Moon, MonitorDot } from 'lucide-react';
-import type { ActivityItem, ClientInfo, ConnectorInfo, ContextInfo, TelemetryInfo, TodoItem, ToolMode, UsageInfo } from '../types';
+import type { ActivityItem, ClientInfo, ConnectorInfo, ContextInfo, HealthInfo, TelemetryInfo, TodoItem, ToolMode, UsageInfo } from '../types';
 
 /** Heure courante, rafraichie a intervalle fixe : une echeance passe en retard sans interaction. */
 function useNow(intervalMs: number): number {
@@ -206,6 +206,7 @@ const ALERT_KIND_LABEL: Record<string, string> = {
   quota: 'Quota',
   todo_due: 'Tâches',
   wake: 'Réveil',
+  health: 'Santé',
 };
 
 /** Ce que Nestor a signale de lui-meme : les alertes de la boucle proactive. */
@@ -369,6 +370,43 @@ export const DevicesPanel: React.FC<{ clients: ClientInfo[]; connected: boolean 
     )}
   </Card>
 );
+
+// ------------------------------------------------------------------ Sante
+
+const HEALTH_TONE: Record<string, string> = { ok: 'bg-ok-400', warn: 'bg-alert-400', down: 'bg-danger-400' };
+
+/** Ce qui doit tourner autour de nestord : juge, bord Tailscale, certificats, sauvegarde. */
+export const HealthPanel: React.FC<{ health: HealthInfo | null }> = ({ health }) => {
+  const down = health?.items.filter((i) => i.status === 'down').length ?? 0;
+  return (
+    <Card
+      title="Santé"
+      aside={
+        health ? (
+          <span className={`text-[12px] ${down > 0 ? 'text-danger-300' : 'text-ivory-500'}`}>
+            {down > 0 ? `${down} hors service` : `vérifiée ${new Date(health.checked_at_ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+          </span>
+        ) : undefined
+      }
+    >
+      {!health ? (
+        <p className="m-0 text-[13px] text-ivory-700">Première vérification dans quelques secondes.</p>
+      ) : (
+        <ul className="m-0 p-0 list-none flex flex-col gap-1.5">
+          {health.items.map((i) => (
+            <li key={i.name} className="flex items-baseline gap-2.5">
+              <span className={`w-2 h-2 rounded-full shrink-0 ${HEALTH_TONE[i.status] ?? 'bg-ivory-700'}`} aria-hidden="true" />
+              <span className="row-label shrink-0">{i.name}</span>
+              <span className={`min-w-0 flex-1 text-right break-words ${i.status === 'down' ? 'text-danger-300' : i.status === 'warn' ? 'text-alert-300' : 'text-ivory-300'}`}>
+                {i.detail}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+};
 
 // ------------------------------------------------------------------ Systeme
 

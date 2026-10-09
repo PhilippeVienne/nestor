@@ -1,0 +1,10 @@
+[Unit]
+Description=Nestor : sauvegarde quotidienne a 3 h 30
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=20min
+
+[Install]
+WantedBy=timers.target

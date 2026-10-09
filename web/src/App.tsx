@@ -13,7 +13,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { JudgeActions, ConsciencePanel } from './components/ConsciencePanel';
 import { ActivityLog } from './components/ActivityLog';
 import { MissionPanel } from './components/MissionPanel';
-import { Card, SituationPanel, SituationStrip, AlertsPanel, TasksPanel, DevicesPanel, SystemPanel } from './components/DashboardPanels';
+import { Card, SituationPanel, SituationStrip, AlertsPanel, TasksPanel, DevicesPanel, SystemPanel, HealthPanel } from './components/DashboardPanels';
 
 /**
  * L'ecran de connexion passe d'abord : l'application, et avec elle le WebSocket, n'est
@@ -65,6 +65,7 @@ function Dashboard({ auth, hidden }: { auth: Auth; hidden: boolean }) {
     deleteTodo,
     clients,
     telemetry,
+    health,
     connectors,
     setToolMode,
     toolApprovals,
@@ -118,6 +119,7 @@ function Dashboard({ auth, hidden }: { auth: Auth; hidden: boolean }) {
           <ConsciencePanel judgements={judgements} onResolve={resolveJudgement} />
         </div>
       </Card>
+      <HealthPanel health={health} />
       <DevicesPanel clients={clients} connected={connectionState === 'connected'} />
       <SystemPanel telemetry={telemetry} usage={usage} context={context} />
     </>

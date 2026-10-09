@@ -11,6 +11,7 @@ mod clock;
 mod config;
 mod connectors;
 mod dashboard;
+mod health;
 mod judge;
 mod mcp;
 mod memory;
@@ -67,14 +68,6 @@ fn write_mcp_config(mcp_secret: &str) -> anyhow::Result<PathBuf> {
     let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)?;
     file.write_all(&serde_json::to_vec_pretty(&config)?)?;
     Ok(path)
-}
-
-/// `~/` en tete d'un chemin de configuration.
-fn shellexpand_home(path: &str) -> String {
-    match path.strip_prefix("~/") {
-        Some(rest) => format!("{}/{rest}", std::env::var("HOME").unwrap_or_else(|_| ".".to_string())),
-        None => path.to_string(),
-    }
 }
 
 #[tokio::main]
@@ -171,6 +164,7 @@ Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) 
     power::spawn(events_tx.clone(), config.clone(), state.missions.clone(), state.current_place.clone());
     calendar::spawn(events_tx.clone(), config.clone(), state.current_place.clone());
     sleep::spawn(events_tx.clone(), config.clone(), state.current_place.clone());
+    health::spawn(events_tx.clone(), config.clone());
     capture::spawn(events_tx.clone(), config.clone());
     proactive::spawn(
         events_tx.clone(),
@@ -220,7 +214,7 @@ Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) 
     // Interface web construite, servie sur un second port de la boucle locale : c'est lui
     // que `tailscale serve` publie a la racine, sans jamais exposer `/mcp` ni `/wake`.
     if let Some(ui_dir) = config.ui_dir.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
-        let dir = PathBuf::from(shellexpand_home(ui_dir));
+        let dir = PathBuf::from(config::expand_home(ui_dir));
         if dir.join("index.html").is_file() {
             let ui_app = Router::new().fallback_service(tower_http::services::ServeDir::new(&dir));
             let ui_addr: SocketAddr = config.ui_listen.parse()?;
