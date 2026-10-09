@@ -194,6 +194,9 @@ impl MissionManager {
                 entry.summary = Some(summary.clone());
             }
         }
+        if matches!(status, MissionStatus::Completed) {
+            crate::memory::remember_mission(id, description, &summary);
+        }
 
         let _ = self.events_tx.send(ServerEvent::Mission {
             id,

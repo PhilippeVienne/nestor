@@ -13,6 +13,7 @@ mod connectors;
 mod dashboard;
 mod judge;
 mod mcp;
+mod memory;
 mod mission;
 mod onboard;
 mod passkey;
@@ -101,6 +102,7 @@ Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) 
     }
     judge::spawn_warmup(settings::get().judge_config(&config.judge));
     let todos = Arc::new(todo::TodoStore::open_default()?);
+    memory::init(Arc::new(memory::MemoryStore::open_default()?));
 
     // La session conversationnelle n'existe pas encore : elle est renseignee
     // apres le demarrage du serveur HTTP, cf. plus bas.

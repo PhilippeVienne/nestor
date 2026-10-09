@@ -197,6 +197,56 @@ que confirmer l'occurrence du jour : elle reapparaitra a la prochaine echeance d
             }
         },
         {
+            "name": "memory_write",
+            "description": "Retient un fait durable dans la memoire longue : preference, decision et \
+son pourquoi, piege rencontre, information sur l'utilisateur, projet. Un fait deja connu (meme \
+titre, meme contexte) est mis a jour et gagne en confiance. Pour contredire un ancien fait, passe \
+son identifiant dans replaces : l'ancien est perime, jamais reecrit.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "kind": { "type": "string", "description": "person, preference, project, decision, pitfall, mission, code, place ou fact" },
+                    "title": { "type": "string", "description": "Une ligne, prononcable telle quelle" },
+                    "body": { "type": "string", "description": "Le detail, 500 caracteres au plus : un resume et un pointeur (fichier, mission), pas un document" },
+                    "context": { "type": "string", "description": "Portee : perso, projet:nestor, machine:atelier... (defaut : perso)" },
+                    "tags": { "type": "string", "description": "Mots-cles separes par des virgules" },
+                    "replaces": { "type": "integer", "description": "Identifiant du fait que celui-ci contredit" },
+                    "links": {
+                        "type": "array",
+                        "description": "Aretes vers d'autres faits : [{\"id\": 12, \"relation\": \"cause\"}]. Relations : concerne, decide_pour, remplace, contredit, cause, fait_partie_de, produit_par, mentionne",
+                        "items": { "type": "object", "properties": { "id": { "type": "integer" }, "relation": { "type": "string" } }, "required": ["id"] }
+                    }
+                },
+                "required": ["kind", "title"]
+            }
+        },
+        {
+            "name": "memory_search",
+            "description": "Cherche dans la memoire longue avant de repondre sur le passe, un projet, \
+une preference ou une decision. Ramene les faits les plus pertinents et, par le graphe, leur \
+pourquoi. Budget borne : une dizaine de faits.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Mots-cles ou question" },
+                    "context": { "type": "string", "description": "Portee a privilegier (perso, projet:nestor...)" },
+                    "kinds": { "type": "array", "items": { "type": "string" }, "description": "Types a retenir, vide pour tous" },
+                    "limit": { "type": "integer", "description": "Nombre maximal de faits (defaut 8)" },
+                    "include_history": { "type": "boolean", "description": "Inclure les faits perimes (« vous me disiez l'inverse en juin »)" }
+                },
+                "required": ["query"]
+            }
+        },
+        {
+            "name": "memory_forget",
+            "description": "Oublie un fait (« oublie ca ») : il sort de toute recuperation.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "integer", "description": "Identifiant du fait" } },
+                "required": ["id"]
+            }
+        },
+        {
             "name": "todo_delete",
             "description": "Supprime definitivement une tache (utilisateur qui a change d'avis, doublon, etc.).",
             "inputSchema": {
@@ -418,6 +468,60 @@ Taches en attente : {pending} (dont {overdue} en retard). {agenda}",
             } else {
                 Ok(text_result(format!("Tache #{id} inconnue.")))
             }
+        }
+        "memory_write" => {
+            let store = crate::memory::global().ok_or_else(|| "memoire indisponible".to_string())?;
+            let text = |key: &str| arguments.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
+            let node = crate::memory::NewNode {
+                kind: text("kind"),
+                title: text("title"),
+                body: text("body"),
+                context: text("context"),
+                tags: text("tags"),
+                source: "conversation".to_string(),
+            };
+            let replaces = arguments.get("replaces").and_then(Value::as_i64);
+            let links: Vec<(i64, String)> = arguments
+                .get("links")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|l| {
+                            Some((l.get("id")?.as_i64()?, l.get("relation").and_then(Value::as_str).unwrap_or("concerne").to_string()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let outcome = store.write(node, replaces, &links).map_err(|err| format!("echec d'ecriture : {err}"))?;
+            Ok(text_result(if outcome.updated {
+                format!("Fait #{} deja connu : mis a jour, confiance augmentee.", outcome.id)
+            } else {
+                format!("Fait #{} retenu.", outcome.id)
+            }))
+        }
+        "memory_search" => {
+            let store = crate::memory::global().ok_or_else(|| "memoire indisponible".to_string())?;
+            let query = arguments.get("query").and_then(Value::as_str).unwrap_or_default();
+            let context = arguments.get("context").and_then(Value::as_str).filter(|c| !c.is_empty());
+            let kinds: Vec<String> = arguments
+                .get("kinds")
+                .and_then(Value::as_array)
+                .map(|k| k.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                .unwrap_or_default();
+            let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(8).clamp(1, 20) as usize;
+            let history = arguments.get("include_history").and_then(Value::as_bool).unwrap_or(false);
+            let hits = store.search(query, context, &kinds, limit, history).map_err(|err| format!("echec de recherche : {err}"))?;
+            if hits.is_empty() {
+                return Ok(text_result("Rien en memoire a ce sujet.".to_string()));
+            }
+            Ok(text_result(hits.iter().map(crate::memory::Node::render).collect::<Vec<_>>().join("\n")))
+        }
+        "memory_forget" => {
+            let store = crate::memory::global().ok_or_else(|| "memoire indisponible".to_string())?;
+            let id = arguments.get("id").and_then(Value::as_i64).ok_or_else(|| "argument 'id' requis".to_string())?;
+            let found = store.forget(id).map_err(|err| format!("echec d'oubli : {err}"))?;
+            Ok(text_result(if found { format!("Fait #{id} oublie.") } else { format!("Fait #{id} inconnu.") }))
         }
         other => {
             // Outil d'un connecteur externe : relaye par la passerelle, qui applique sa regle.

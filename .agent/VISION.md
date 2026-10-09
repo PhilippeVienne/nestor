@@ -506,10 +506,10 @@ matérielle du réveil à faire.
 
 ### Chantiers parallèles, à trancher
 
-- **Mémoire** (`docs/memory.md`) : encore une proposition. Elle sert au
-  dédoublonnage fin des alertes et aux réponses sans relecture du dépôt ;
-  à valider avant l'étape F, le moteur de l'étape C pouvant d'abord
-  dédoublonner en mémoire vive.
+- **Mémoire** (`docs/memory.md`) : en place depuis le 2026-10-09 (SQLite +
+  FTS5, outils `memory_*`, fiche de démarrage, capture des comptes rendus de
+  mission). Restent la capture par mission de fond, l'hygiène périodique et
+  les vecteurs.
 - **Smart Turn** (`docs/smart-turn.md`) : à tester avec de vraies
   hésitations humaines avant de l'activer par défaut.
 

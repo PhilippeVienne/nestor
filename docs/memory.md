@@ -1,8 +1,9 @@
 # Mémoire de Nestor : modèle de données et récupération
 
-Date : 2026-09-12
-Statut : **proposition**, à valider avant implémentation. Le stockage est
-volontairement laissé ouvert en fin de document.
+Date : 2026-09-12, implémentée le 2026-10-09
+Statut : **en place** (`nestord/src/memory.rs`, SQLite + FTS5). Le modèle
+ci-dessous est celui du code ; la section 8 dit ce qui est fait et ce qui
+reste.
 
 Place dans la feuille de route : après l'étape 2 du `.agent/VISION.md`
 (contexte et sécurité réseau), et avant la boucle proactive, qui a besoin de la
@@ -137,3 +138,41 @@ Le choix se joue donc sur l'exploitation, pas sur la capacité : SQLite ne
 demande rien, Elasticsearch coûte un service mais offre une mémoire
 inspectable et de la place pour indexer bien plus tard (code, mails,
 documents).
+
+## 8. État de l'implémentation (2026-10-09)
+
+**Stockage retenu : SQLite** (`~/.local/share/nestord/memory.db`), avec
+`rusqlite` déjà présent pour les tâches. Tables `nodes` et `edges`, index
+`nodes_fts` (FTS5, `unicode61 remove_diacritics 2`), tenu à jour par
+déclencheurs. Aucun service ; l'interface MCP reste celle décrite ici, donc le
+stockage est remplaçable.
+
+Fait :
+
+- Nœud et arête du §2 et §3 (`kind`, `context`, `tags`, `source`,
+  `confidence`, `valid_until`, pierre tombale `forgotten`, compteur `recalled`).
+- Outils MCP `memory_write` (avec `replaces` et `links`), `memory_search`
+  (`query`, `context`, `kinds`, `limit`, `include_history`) et `memory_forget`.
+- Récupération du §4 : FTS5 (chaque mot compte, aucun n'est obligatoire), un
+  saut de graphe depuis les trois meilleurs résultats, reclassement
+  pertinence × fraîcheur × confiance × contexte, écart des périmés sauf
+  historique, troncature au budget de 1 500 caractères en préférant la
+  diversité des types.
+- Écriture du §5 : dédoublonnage par titre normalisé dans un contexte (mise à
+  jour, confiance + 1), contradiction par `replaces` (`valid_until` sur
+  l'ancien, arête `remplace`), oubli par pierre tombale.
+- Fiche de démarrage : dix lignes au plus (`person`, `preference`, `project`
+  par confiance), ajoutée au prompt système à chaque lancement de la session,
+  donc aussi à une relance. Seule mémoire poussée.
+- Capture sans modèle : chaque mission terminée devient un nœud `mission`
+  (objet, résumé borné, source `mission:<id>`).
+- Consigne de prompt : écrire les faits durables, chercher avant de répondre
+  sur le passé, oublier sur demande, contredire par `replaces`.
+
+Reste :
+
+- Capture par mission de fond des faits d'un tour de conversation (§5) : pour
+  l'instant seule la session écrit, explicitement.
+- Hygiène périodique (archivage des faits jamais rappelés, faibles et vieux).
+- Vecteurs : la recherche est lexicale seulement.
+- Aucun écran dans l'interface web ; `memory_search` est le seul accès.

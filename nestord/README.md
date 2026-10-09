@@ -11,6 +11,7 @@ et expose une API WebSocket a l'UI web et a l'appli mobile sur `127.0.0.1:8340/w
 - `../docs/veille.md` : presence devant l'ordinateur et inhibition de la veille.
 - `../docs/agenda.md` : Google Calendar en lecture directe, `nestord onboard --google`.
 - `../docs/canal-mobile.md` : telephone joignable hors appel (`?client=standby`), sonnerie au reveil.
+- `../docs/memory.md` : memoire longue (SQLite + FTS5), outils `memory_write`, `memory_search`, `memory_forget`.
 
 Endpoints : `/ws` (WebSocket UI) et `/mcp` (serveur MCP consomme par la
 session conversationnelle elle-meme).

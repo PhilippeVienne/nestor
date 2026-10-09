@@ -69,16 +69,26 @@ qui arrive de lui-meme dans la conversation est une relance a faire \
 naturellement, jamais une liste recitee. Quand le contexte s'y prete \
 (fin d'une tache, moment calme), tu peux aussi prendre l'initiative de \
 proposer la suite d'un projet en cours ou une tache en retard, en une \
-phrase, sans insister si {address} n'y donne pas suite.";
+phrase, sans insister si {address} n'y donne pas suite.
+
+Memoire longue : appelle memory_write pour tout fait durable (une preference, \
+une decision et son pourquoi, un piege rencontre, une information sur \
+{address}), et quand {address} dit « retiens que ». Avant de repondre sur le \
+passe, un projet ou une preference, appelle memory_search : ne devine pas ce \
+que tu peux retrouver. « Oublie ca » : memory_forget. Si un fait contredit un \
+ancien, ecris le nouveau avec replaces, ne reecris jamais l'ancien.";
 
 /// Assemble le prompt systeme : personnalite d'abord, contraintes vocales et
 /// regle de delegation ensuite. La forme d'adresse vient de la configuration
 /// (`config.toml`, ou `NESTORD_ADDRESS_FORM` qui a priorite dessus).
 fn build_system_prompt(config: &Config) -> String {
-    format!(
-        "{}\n{VOICE_SYSTEM_PROMPT}",
-        PERSONALITY_PROMPT.replace("{address}", &config.address_form)
-    )
+    let mut prompt = format!("{}\n{}", PERSONALITY_PROMPT.replace("{address}", &config.address_form), VOICE_SYSTEM_PROMPT.replace("{address}", &config.address_form));
+    // Fiche de demarrage : dix lignes au plus, la seule memoire poussee (docs/memory.md §4).
+    if let Some(sheet) = crate::memory::global().and_then(|m| m.startup_sheet().ok()).filter(|s| !s.is_empty()) {
+        prompt.push_str("\n\nCe que tu sais deja (fiche de memoire) :\n");
+        prompt.push_str(&sheet);
+    }
+    prompt
 }
 
 /// Poignee permettant d'envoyer du texte utilisateur vers le sous-processus `claude`.
