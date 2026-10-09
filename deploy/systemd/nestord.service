@@ -5,6 +5,9 @@ Wants=network-online.target
 
 [Service]
 WorkingDirectory=%h/github.com/PhilippeVienne/nestor/nestord
+# Les sous-processus (claude, uvx des connecteurs) vivent dans ~/.local/bin : le PATH
+# d'un service utilisateur ne les connait pas.
+Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
 # Bibliotheques CUDA 13 reutilisees d'Ollama (cf. nestord/README.md).
 Environment=LD_LIBRARY_PATH=/usr/local/lib/ollama/cuda_v13
 Environment=RUST_LOG=nestord=info

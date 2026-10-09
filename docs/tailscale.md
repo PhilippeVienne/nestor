@@ -100,7 +100,10 @@ La première publication, par `tailscale serve --https=8443` sur
 `kanto.felis-ionian.ts.net:8443`, a été retirée le 2026-10-09 une fois
 `nestor.vienne.me` validé ; `tailscale serve` n'est plus utilisé pour Nestor.
 
-## Reste à faire
+## nestord en service utilisateur
 
-- Passer `nestord` en service utilisateur (`deploy/systemd/nestord.service`,
-  `loginctl enable-linger`) pour qu'il survive à la session graphique.
+`deploy/systemd/nestord.service`, copié dans `~/.config/systemd/user/`, activé le
+2026-10-09 avec `loginctl enable-linger` : le daemon démarre avec la session
+utilisateur et survit à sa fermeture. Le PATH du service inclut `~/.local/bin`
+(`claude`, `uvx`) : sans lui, la session `claude` ne se lance pas et le service
+redémarre en boucle. Journal : `journalctl --user -u nestord.service -f`.
