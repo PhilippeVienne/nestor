@@ -430,11 +430,22 @@ fn fail(error: AuthError) -> Response {
 }
 
 /// Origine de la page appelante : exigee (ces points d'acces ne servent qu'a un navigateur)
-/// et soumise a la meme regle que `/ws`.
+/// et soumise a la meme regle que `/ws`. Un navigateur n'envoie pas `Origin` sur un GET
+/// de meme origine (page et API derriere le meme nom, cf. docs/tailscale.md) : on se
+/// rabat alors sur `Referer`, puis sur l'hote et le protocole transmis par le mandataire.
 fn page_origin(headers: &HeaderMap, state: &AppState) -> Result<String, Response> {
-    let origin = headers.get(axum::http::header::ORIGIN).and_then(|v| v.to_str().ok());
+    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(str::trim).filter(|v| !v.is_empty());
+    let from_referer = header("referer")
+        .and_then(|r| url::Url::parse(r).ok())
+        .map(|u| u.origin().ascii_serialization())
+        .filter(|o| o != "null");
+    let from_proxy = match (header("x-forwarded-proto"), header("x-forwarded-host").or_else(|| header("host"))) {
+        (Some(proto), Some(host)) => Some(format!("{proto}://{host}")),
+        _ => None,
+    };
+    let origin = header("origin").map(str::to_string).or(from_referer).or(from_proxy);
     match origin {
-        Some(origin) if crate::auth::origin_allowed(Some(origin), &state.config.allowed_origins) => Ok(origin.to_string()),
+        Some(origin) if crate::auth::origin_allowed(Some(&origin), &state.config.allowed_origins) => Ok(origin),
         _ => Err(fail(AuthError::new(403, "origine non autorisee"))),
     }
 }
