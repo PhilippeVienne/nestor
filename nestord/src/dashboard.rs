@@ -68,6 +68,11 @@ pub fn client_count() -> usize {
     CLIENTS.lock().unwrap().len()
 }
 
+/// Clients connectes d'un type donne (`web`, `mobile`...).
+pub fn client_count_of(kind: &str) -> usize {
+    CLIENTS.lock().unwrap().iter().filter(|c| c.kind == kind).count()
+}
+
 pub fn clients_event() -> ServerEvent {
     ServerEvent::Clients { items: CLIENTS.lock().unwrap().clone() }
 }
@@ -81,6 +86,7 @@ pub fn context_event(config: &Config, current_place: &Mutex<Option<String>>) -> 
         quiet_end: config.quiet_hours.end.clone(),
         quiet_active: config.quiet_hours.contains(chrono::Local::now().time()),
         auth_required: config.auth.is_some() || crate::passkey::has_any(),
+        presence: crate::power::snapshot(),
     }
 }
 

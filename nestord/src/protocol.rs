@@ -63,6 +63,9 @@ pub enum ServerEvent {
         quiet_active: bool,
         /// Un jeton est exige pour se connecter a `/ws`.
         auth_required: bool,
+        /// Presence devant l'ordinateur et verrou de veille (`power.rs`), aplatis.
+        #[serde(flatten)]
+        presence: crate::power::PresenceInfo,
     },
     /// Taches et rappels en attente, rediffuses a chaque changement.
     Todos {
@@ -189,12 +192,13 @@ pub enum ServerEvent {
     },
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DaemonStatus {
     Listening,
     Thinking,
     Speaking,
+    #[default]
     Idle,
 }
 

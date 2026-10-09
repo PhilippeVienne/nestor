@@ -25,6 +25,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
 webauthn-rs = "0.5.5"
 whisper-rs = { version = "0.16.0", features = ["cuda"], optional = true }
+zbus = { version = "5.19.0", default-features = false, features = ["tokio"] }
 
 [features]
 default = ["full-audio"]

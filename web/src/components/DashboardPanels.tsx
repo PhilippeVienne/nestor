@@ -41,6 +41,13 @@ const Unknown: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
 // ------------------------------------------------------------------ Situation
 
+/** Duree d'inactivite lisible : « 3 min », « 2 h 05 ». */
+function formatIdle(secs: number): string {
+  const minutes = Math.floor(secs / 60);
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')}`;
+}
+
 export const SituationPanel: React.FC<{ context: ContextInfo | null }> = ({ context }) => {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -69,7 +76,20 @@ export const SituationPanel: React.FC<{ context: ContextInfo | null }> = ({ cont
       </Row>
       <div className="border-t border-slate-800 pt-3 flex flex-col gap-2">
         <Row label="Présence">
-          <Unknown>non mesurée</Unknown>
+          {context?.present === undefined ? (
+            <Unknown>non mesurée (hors GNOME)</Unknown>
+          ) : context.present ? (
+            <span className="text-emerald-300">devant l'ordinateur</span>
+          ) : (
+            <span className="text-amber-300">absent depuis {formatIdle(context.idle_secs ?? 0)}</span>
+          )}
+        </Row>
+        <Row label="Veille">
+          {context?.inhibit ? (
+            <span className="text-cyan-300">empêchée · {context.inhibit}</span>
+          ) : (
+            <span className="text-slate-400">autorisée</span>
+          )}
         </Row>
         <Row label="Prochain rendez-vous">
           <Unknown>agenda non branché</Unknown>

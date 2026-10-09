@@ -38,6 +38,8 @@ pub struct Config {
     pub judge: JudgeConfig,
     /// Boucle proactive : alertes a l'initiative de nestord (cf. `proactive.rs`).
     pub proactive: ProactiveConfig,
+    /// Presence devant l'ordinateur et inhibition de la veille (cf. `power.rs`).
+    pub power: PowerConfig,
     /// Jeton partage exige pour se connecter a `/ws` (query `?token=...`).
     /// `NESTORD_AUTH_TOKEN` a priorite. Absent (defaut) : pas de verification,
     /// tolerable tant que nestord n'ecoute que sur `127.0.0.1` - a definir
@@ -73,12 +75,29 @@ impl Default for Config {
             mcp_servers: Vec::new(),
             judge: JudgeConfig::default(),
             proactive: ProactiveConfig::default(),
+            power: PowerConfig::default(),
             auth_token: None,
             auth_token_sha256: None,
             allowed_origins: Vec::new(),
             ui_url: "http://localhost:5173".to_string(),
             auth: None,
         }
+    }
+}
+
+/// Presence et veille (`power.rs`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct PowerConfig {
+    /// Prendre un verrou logind tant qu'il existe une raison d'etre actif.
+    pub inhibit: bool,
+    /// Inactivite GNOME au-dela de laquelle l'utilisateur est considere absent.
+    pub idle_minutes: u64,
+}
+
+impl Default for PowerConfig {
+    fn default() -> Self {
+        Self { inhibit: true, idle_minutes: 15 }
     }
 }
 

@@ -18,6 +18,7 @@ mod passkey;
 mod protocol;
 mod settings;
 mod location;
+mod power;
 mod proactive;
 mod todo;
 mod usage;
@@ -150,6 +151,7 @@ Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) 
     });
     connectors::init(&config.mcp_servers, config.auth.is_some() || passkey::has_any(), events_tx.clone());
     dashboard::spawn_ticker(events_tx.clone(), config.clone(), state.current_place.clone());
+    power::spawn(events_tx.clone(), config.clone(), state.missions.clone(), state.current_place.clone());
     proactive::spawn(
         events_tx.clone(),
         brain.clone(),

@@ -459,15 +459,18 @@ Réalisée le 2026-10-09, voir `docs/position.md`. Reste à valider sur appareil
 
 ### Étape E — Présence et inhibition de la veille
 
-- [ ] Client D-Bus (`zbus`) IdleMonitor de GNOME : inactivité et retour
+Réalisée le 2026-10-09 sauf la relance de session, voir `docs/veille.md`.
+
+- [x] Client D-Bus (`zbus`) IdleMonitor de GNOME : inactivité et retour
       d'activité ; désactivation propre hors GNOME, utilisateur présumé
       présent.
-- [ ] Verrou logind unique, piloté par les raisons d'être actif (mission
+- [x] Verrou logind unique, piloté par les raisons d'être actif (mission
       `started`, session en `thinking` ou `speaking`, appel mobile, événement
       imminent), avec un `why` lisible.
-- [ ] Gestion de `PrepareForSleep` et reprise après veille : relance de la
+- [~] Gestion de `PrepareForSleep` et reprise après veille : relance de la
       session `claude` si nécessaire, reconnexion des sources, recalcul du
-      contexte.
+      contexte. Fait : signal écouté, contexte recalculé. Reste : rendre la
+      session `claude` remplaçable (`OnceLock` aujourd'hui) pour la relancer.
 
 ### Étape F — Agenda
 

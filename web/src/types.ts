@@ -25,6 +25,12 @@ export interface ContextInfo {
   quiet_end: string;
   quiet_active: boolean;
   auth_required: boolean;
+  /** Presence devant l'ordinateur (IdleMonitor GNOME) ; absent si non mesurable. */
+  present?: boolean;
+  idle_secs?: number;
+  /** Motif du verrou de veille en cours (cf. nestord/src/power.rs). */
+  inhibit?: string;
+  resumed_at_ms?: number;
 }
 
 /** Tache ou rappel (cf. nestord/src/todo.rs). */

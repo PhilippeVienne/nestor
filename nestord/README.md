@@ -8,6 +8,7 @@ et expose une API WebSocket a l'UI web et a l'appli mobile sur `127.0.0.1:8340/w
 - `../docs/missions.md` : delegation aux sous-agents, serveur MCP, routage.
 - `../docs/proactive.md` : boucle proactive, alertes a l'initiative de Nestor.
 - `../docs/position.md` : position envoyee par l'appli mobile, `POST /location`.
+- `../docs/veille.md` : presence devant l'ordinateur et inhibition de la veille.
 
 Endpoints : `/ws` (WebSocket UI) et `/mcp` (serveur MCP consomme par la
 session conversationnelle elle-meme).
