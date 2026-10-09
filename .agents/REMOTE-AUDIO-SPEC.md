@@ -1,5 +1,7 @@
 # SPÉCIFICATION TECHNIQUE : AUDIO CAPTURE & PLAYBACK DANS LA PAGE WEB (USAGE REMOTE)
 
+> Document historique (septembre 2026) : prompt de depart, conserve pour la tracabilite. Le contrat en vigueur est celui de `nestord/src/protocol.rs` et de `docs/audio-protocol.md` ; la voix est Piper (22 050 Hz), pas Kokoro, et l'UI web vit dans `web/`.
+
 ## 1. Motivation
 Permettre l'utilisation de Nestor à distance (depuis un navigateur distant, laptop, smartphone, etc.) sans dépendre du micro et des haut-parleurs physiques de la machine hôte serveur (Linux/ALSA/cpal/rodio).
 

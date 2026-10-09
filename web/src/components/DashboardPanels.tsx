@@ -2,6 +2,16 @@ import React, { useEffect, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import type { ClientInfo, ConnectorInfo, ContextInfo, TelemetryInfo, TodoItem, ToolMode, UsageInfo } from '../types';
 
+/** Heure courante, rafraichie a intervalle fixe : une echeance passe en retard sans interaction. */
+function useNow(intervalMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(timer);
+  }, [intervalMs]);
+  return now;
+}
+
 /** Carte d'un panneau du tableau de bord. */
 export const Card: React.FC<{ title: string; aside?: React.ReactNode; children: React.ReactNode }> = ({
   title,
@@ -101,6 +111,7 @@ export const TasksPanel: React.FC<{
   const [title, setTitle] = useState('');
   const [dueAt, setDueAt] = useState('');
   const [daily, setDaily] = useState(false);
+  const now = useNow(60_000);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -119,7 +130,7 @@ export const TasksPanel: React.FC<{
         <ul className="flex flex-col">
           {todos.map((todo) => {
             const detail = todoDetail(todo);
-            const late = !!todo.due_at && !todo.recurrence && todo.due_at * 1000 < Date.now();
+            const late = !!todo.due_at && !todo.recurrence && todo.due_at * 1000 < now;
             return (
               <li key={todo.id} className="flex items-center gap-2 min-h-11">
                 <input

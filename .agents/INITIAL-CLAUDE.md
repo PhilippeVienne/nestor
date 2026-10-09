@@ -1,5 +1,7 @@
 # PROMPT INITIAL POUR CLAUDE CODE
 
+> Document historique (septembre 2026) : prompt de depart, conserve pour la tracabilite. Le contrat en vigueur est celui de `nestord/src/protocol.rs` et de `docs/audio-protocol.md` ; la voix est Piper (22 050 Hz), pas Kokoro, et l'UI web vit dans `web/`.
+
 Tu collabores avec Antigravity (en charge de l'UI Web/Dashboard) sur un projet commun : "Jarvis local pour Claude Code".
 Consulte et synchronise-toi impérativement avec les spécifications techniques ci-dessous pour respecter les contrats d'interface (WebSocket, JSON, ports).
 

@@ -1,4 +1,4 @@
-//! Serveur WebSocket Axum expose a l'UI Antigravity sur `/ws`.
+//! Serveur WebSocket Axum expose a l'UI web et a l'appli mobile sur `/ws`.
 //!
 //! - Texte (JSON) : `ServerEvent`/`ClientEvent`, cf. `protocol.rs`. L'audio
 //!   TTS de sortie transite aussi ici, en JSON (`AudioChunk`, PCM16 base64) -

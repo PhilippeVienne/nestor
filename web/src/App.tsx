@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { X } from 'lucide-react';
 import { useNestorWebSocket } from './hooks/useNestorWebSocket';
 import { useAuth, type Auth } from './auth/useAuth';
@@ -83,14 +83,18 @@ function Dashboard({ auth, hidden }: { auth: Auth; hidden: boolean }) {
 
   // La console s'ouvre quand un outil demarre, sauf si une decision attend : son voile
   // recouvrirait le bandeau de reponse. Dans ce cas elle se referme.
+  // Reaction aux transitions pendant le rendu (et non dans un effet) : l'utilisateur
+  // garde la main entre deux changements, par exemple pour rouvrir la console.
   const runningToolsCount = toolCalls.filter((t) => t.status === 'running').length;
-  useEffect(() => {
+  const [consoleTrigger, setConsoleTrigger] = useState({ runningToolsCount, needsAnswer });
+  if (consoleTrigger.runningToolsCount !== runningToolsCount || consoleTrigger.needsAnswer !== needsAnswer) {
+    setConsoleTrigger({ runningToolsCount, needsAnswer });
     if (needsAnswer) {
       setIsConsoleOpen(false);
     } else if (runningToolsCount > 0) {
       setIsConsoleOpen(true);
     }
-  }, [runningToolsCount, needsAnswer]);
+  }
 
   const leftPanels = (
     <>

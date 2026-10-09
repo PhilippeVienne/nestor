@@ -608,16 +608,19 @@ export function useNestorWebSocket({
         );
       }
     }
-  }, [url, autoReconnect, reconnectInterval, isSimulated, isSpeakerActive, isBrowserTtsEnabled]);
+  }, [url, autoReconnect, reconnectInterval, isSimulated, isSpeakerActive, isBrowserTtsEnabled, pushActivity, pushNotice, sendEvent]);
 
   // Keep connectRef fresh
   useEffect(() => {
     connectRef.current = connect;
   }, [connect]);
 
-  // Connect on mount
+  // Connect on mount : synchronisation avec un systeme externe (le WebSocket). Le
+  // seul setState synchrone est le passage en « error » quand le socket ne peut pas
+  // etre cree, ce qui est bien l'etat a montrer.
   useEffect(() => {
     isExplicitCloseRef.current = false;
+    // oxlint-disable-next-line react/set-state-in-effect
     connect();
 
     return () => {

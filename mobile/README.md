@@ -17,7 +17,7 @@ Cette application transforme votre smartphone Android en combiné d'appel dédi�
 - **Annulation Matérielle d'Écho (AEC)** & **Suppression de Bruit** : Utilisation de `MediaRecorder.AudioSource.VOICE_COMMUNICATION` et activation native des effets audio Android (`AcousticEchoCanceler`, `NoiseSuppressor`).
 - **Bascule des Sorties Audio** : Bouton direct pour commuter entre l'écouteur interne (oreille), le haut-parleur externe et les casques Bluetooth connectés.
 - **Microphone 16 kHz Mono PCM** : Flux binaire brut envoyé au daemon `nestord` via WebSocket.
-- **AudioTrack 24 kHz** : Lecture fluide et à latence quasi-nulle de la synthèse vocale Kokoro TTS.
+- **AudioTrack à la fréquence annoncée** : lecture de la synthèse vocale Piper (22 050 Hz pour la voix par défaut) ; la fréquence vient du champ `sample_rate` de chaque `audio_chunk`, un thread dédié écrit les segments par tranches pour que le barge-in prenne effet aussitôt.
 
 ### 3. Interface Sombre & Orbe Réactif
 - **Orbe Audio-Réactif** : Orbe holographique pulsant au rythme des amplitudes vocales (RMS & Peak) avec transitions de couleurs d'état :

@@ -1,11 +1,11 @@
-# Protocole audio binaire nestord <-> front (Antigravity)
+# Protocole audio binaire nestord <-> front (UI web, appli mobile)
 
-Ce document complete `.agents/INITIAL-CLAUDE.md` et `.agents/INITIAL-AGY.md` :
+Ce document complete les prompts d'origine `.agents/INITIAL-CLAUDE.md` et `.agents/INITIAL-AGY.md` (historiques) :
 il decrit le contrat des **frames binaires** WebSocket, en plus des messages
 JSON deja specifies (`state`, `transcript`, `tool_call`, `barge_in`, `send_text`).
 
 Repartition des responsabilites :
-- **Front (Antigravity)** : capture microphone (`getUserMedia` + resampling),
+- **Front (UI web `web/`, appli mobile `mobile/`)** : capture microphone (`getUserMedia` + resampling),
   lecture audio (Web Audio API), visualisation (orbe).
 - **nestord (Rust)** : VAD (Silero v5), STT (Whisper large-v3-turbo), TTS
   (Piper, voix masculine francaise), tout sur GPU (CUDA). Aucun acces direct
@@ -86,7 +86,7 @@ pure pour la sortie - a coordonner avant de changer.
   aux echantillons bruts (capture et lecture), donc le calcul RMS/peak pour
   l'orbe se fait cote front, sur ses propres buffers.
 - nestord n'utilise plus `cpal`/`rodio` : uniquement `ort` (ONNX Runtime,
-  CUDA) pour Silero VAD et Kokoro, et `whisper-rs` (whisper.cpp, CUDA) pour
+  CUDA) pour Silero VAD et Piper, et `whisper-rs` (whisper.cpp, CUDA) pour
   la transcription.
 
 

@@ -1,5 +1,5 @@
-//! Contrat JSON echange avec l'UI Antigravity sur `ws://127.0.0.1:8340/ws`.
-//! Toute modification ici doit rester synchronisee avec `.agents/INITIAL-AGY.md`.
+//! Contrat JSON echange avec l'UI web et l'appli mobile sur `ws://127.0.0.1:8340/ws`.
+//! Toute modification ici doit rester synchronisee avec `web/src/types.ts` et `mobile/src/native/NestorCall.ts`.
 
 use serde::{Deserialize, Serialize};
 
@@ -157,7 +157,7 @@ pub enum ServerEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         resets_at: Option<u64>,
     },
-    /// Segment audio TTS synthetise, encode en base64. Le front (Antigravity)
+    /// Segment audio TTS synthetise, encode en base64. Le front
     /// decode `data` et lit un PCM16 mono brut a `sample_rate` Hz quand
     /// `format == "pcm16"` (evite l'ambiguite avec les frames binaires brutes,
     /// que le front interprete toujours comme du WAV).

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { LogOut, X } from 'lucide-react';
 import type { ConnectorInfo, ContextInfo, NestorSettings, ToolMode } from '../types';
 import type { Auth } from '../auth/useAuth';
@@ -61,7 +61,13 @@ const Range: React.FC<{
   onCommit: (v: number) => void;
 }> = ({ id, label, hint, value, min, max, step, format, onCommit }) => {
   const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
+  // Une valeur venue du daemon remplace le brouillon (ajustement pendant le rendu,
+  // pas dans un effet : pas de rendu intermediaire avec l'ancienne valeur).
+  const [synced, setSynced] = useState(value);
+  if (synced !== value) {
+    setSynced(value);
+    setDraft(value);
+  }
   const commit = () => {
     if (draft !== value) onCommit(draft);
   };
@@ -99,7 +105,11 @@ const NumberField: React.FC<{
   onCommit: (v: number) => void;
 }> = ({ id, label, value, onCommit }) => {
   const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
+  const [synced, setSynced] = useState(value);
+  if (synced !== value) {
+    setSynced(value);
+    setDraft(String(value));
+  }
   const commit = () => {
     const parsed = Number(draft);
     if (Number.isFinite(parsed) && parsed !== value) onCommit(parsed);

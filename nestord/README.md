@@ -2,7 +2,7 @@
 
 Daemon backend de Nestor (assistant vocal local pour Claude Code) : pilote un
 sous-processus `claude` headless, delegue les taches longues a des sous-agents
-et expose une API WebSocket a l'UI (Antigravity) sur `127.0.0.1:8340/ws`.
+et expose une API WebSocket a l'UI web et a l'appli mobile sur `127.0.0.1:8340/ws`.
 
 - `../docs/audio-protocol.md` : contrat audio avec le front.
 - `../docs/missions.md` : delegation aux sous-agents, serveur MCP, routage.
@@ -31,7 +31,7 @@ sudo apt-get install -y libssl-dev nvidia-cuda-toolkit nvidia-cudnn espeak-ng
   CUDA de whisper.cpp (via `whisper-rs-sys`, build cmake). Sur Ubuntu, la
   version depot (`12.4.x`) suffit meme si le driver GPU est plus recent.
 - `nvidia-cudnn` : requis par ONNX Runtime (execution provider CUDA) pour
-  Silero VAD et Kokoro. C'est un paquet "installateur" qui telecharge cuDNN
+  Silero VAD et Piper. C'est un paquet "installateur" qui telecharge cuDNN
   depuis NVIDIA lors de son installation (`update-nvidia-cudnn`) - relancer
   l'installation si `libcudnn.so.9` n'apparait pas sous
   `/usr/lib/x86_64-linux-gnu/` du premier coup.

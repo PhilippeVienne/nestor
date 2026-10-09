@@ -1,6 +1,6 @@
 //! nestord : daemon backend de "Nestor", l'assistant vocal local pour Claude Code.
 //! Orchestre l'audio local, pilote un sous-processus `claude` headless et
-//! expose une API WebSocket a l'UI (Antigravity) sur `127.0.0.1:8340/ws`.
+//! expose une API WebSocket a l'UI web et a l'appli mobile sur `127.0.0.1:8340/ws`.
 
 #[cfg(feature = "full-audio")]
 mod audio;
