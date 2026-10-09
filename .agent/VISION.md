@@ -489,14 +489,20 @@ Réalisée le 2026-10-09 sauf le canal mobile hors appel, voir `docs/agenda.md`.
 
 ### Étape G — Veille nocturne et réveil
 
-- [ ] Évaluation des conditions de mise en veille (domicile, inactivité,
+Implémentée le 2026-10-09 (`sleep.rs`, voir `docs/veille.md`) ; validation
+matérielle du réveil à faire.
+
+- [x] Évaluation des conditions de mise en veille (domicile, inactivité,
       aucune raison d'être actif, plage de repos).
-- [ ] Calcul de l'heure de réveil sur le premier rendez-vous du lendemain.
-- [ ] Timer systemd `WakeSystem=true`, vérifié armé avant de relâcher
+- [x] Calcul de l'heure de réveil sur le premier rendez-vous du lendemain.
+- [x] Timer systemd `WakeSystem=true`, vérifié armé avant de relâcher
       l'inhibition.
-- [ ] Réveil de Monsieur : sonnerie sur le téléphone et annonce de la
+- [~] Réveil de Monsieur : annonce de la journée faite ; sonnerie sur le
+      téléphone en attente du canal mobile hors appel. Annonce de la
       journée.
-- [ ] Tests sur la machine cible (RTC wake, mode de veille, NVIDIA).
+- [~] Tests sur la machine cible : mode de veille relevé (`s2idle [deep]`),
+      timer utilisateur `WakeSystem` accepté ; réveil réel et NVIDIA à
+      observer (procédure dans `docs/veille.md`).
 
 ### Chantiers parallèles, à trancher
 

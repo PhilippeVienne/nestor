@@ -86,6 +86,15 @@ pub struct ActivityInputs {
     pub running_missions: Vec<u64>,
     pub status: DaemonStatus,
     pub mobile_calls: usize,
+    /// Motif de `sleep.rs` quand la machine ne doit pas encore dormir.
+    pub sleep_deferred: Option<String>,
+}
+
+static REASONS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Raisons d'etre actif au dernier tour, hors veille differee (pour `sleep.rs`).
+pub fn current_reasons() -> Vec<String> {
+    REASONS.lock().unwrap().clone()
 }
 
 /// Raisons d'etre actif, dans l'ordre ou elles apparaissent dans le motif du verrou.
@@ -101,6 +110,9 @@ pub fn active_reasons(inputs: &ActivityInputs) -> Vec<String> {
             1 => "appel mobile en cours".to_string(),
             n => format!("{n} appels mobiles en cours"),
         });
+    }
+    if let Some(deferred) = &inputs.sleep_deferred {
+        reasons.push(deferred.clone());
     }
     reasons
 }
@@ -226,7 +238,12 @@ pub fn spawn(
                     .collect(),
                 status,
                 mobile_calls: crate::dashboard::client_count_of("mobile"),
+                sleep_deferred: None,
             };
+            // Les raisons propres (missions, parole, appel) sont publiees pour `sleep.rs`,
+            // qui decide a son tour si la machine peut dormir ; sinon un verrou de plus.
+            *REASONS.lock().unwrap() = active_reasons(&inputs);
+            let inputs = ActivityInputs { sleep_deferred: crate::sleep::guard_reason(), ..inputs };
             let reasons = active_reasons(&inputs);
             if let Some(proxy) = &login1 {
                 let wanted = (!reasons.is_empty()).then(|| reasons.join(" ; "));
@@ -270,8 +287,12 @@ mod tests {
             running_missions: vec![3, 5],
             status: DaemonStatus::Speaking,
             mobile_calls: 1,
+            sleep_deferred: Some("veille differee (position inconnue)".into()),
         });
-        assert_eq!(reasons, ["mission #3 en cours", "mission #5 en cours", "Nestor parle", "appel mobile en cours"]);
+        assert_eq!(
+            reasons,
+            ["mission #3 en cours", "mission #5 en cours", "Nestor parle", "appel mobile en cours", "veille differee (position inconnue)"]
+        );
         let only_listening = active_reasons(&ActivityInputs { status: DaemonStatus::Listening, ..Default::default() });
         assert!(only_listening.is_empty(), "ecouter sans parler ne retient pas la machine");
     }

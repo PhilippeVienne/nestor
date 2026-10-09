@@ -74,6 +74,9 @@ pub enum ServerEvent {
         /// Derniere erreur de lecture de l'agenda, pour le diagnostic.
         #[serde(skip_serializing_if = "Option::is_none")]
         calendar_error: Option<String>,
+        /// Veille nocturne et reveil programme (`sleep.rs`), aplatis.
+        #[serde(flatten)]
+        sleep: crate::sleep::SleepInfo,
     },
     /// Taches et rappels en attente, rediffuses a chaque changement.
     Todos {

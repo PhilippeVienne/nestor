@@ -35,6 +35,12 @@ export interface ContextInfo {
   next_event?: CalendarEvent;
   calendar_connected: boolean;
   calendar_error?: string;
+  /** Veille nocturne geree par nestord (cf. nestord/src/sleep.rs). */
+  sleep_managed: boolean;
+  sleep_allowed: boolean;
+  sleep_blockers: string[];
+  wake_at_ms?: number;
+  wake_armed: boolean;
 }
 
 export interface CalendarEvent {

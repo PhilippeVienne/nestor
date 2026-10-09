@@ -17,6 +17,7 @@ mod onboard;
 mod passkey;
 mod protocol;
 mod settings;
+mod sleep;
 mod calendar;
 mod location;
 mod power;
@@ -39,7 +40,7 @@ use protocol::DaemonStatus;
 use protocol::ServerEvent;
 use ws::AppState;
 
-const LISTEN_ADDR: &str = "127.0.0.1:8340";
+pub const LISTEN_ADDR: &str = "127.0.0.1:8340";
 
 /// Config MCP passee au CLI `claude` : elle pointe vers notre propre serveur
 /// HTTP, d'ou l'obligation d'ecouter avant de spawner le sous-processus.
@@ -157,6 +158,7 @@ Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) 
     dashboard::spawn_ticker(events_tx.clone(), config.clone(), state.current_place.clone());
     power::spawn(events_tx.clone(), config.clone(), state.missions.clone(), state.current_place.clone());
     calendar::spawn(events_tx.clone(), config.clone(), state.current_place.clone());
+    sleep::spawn(events_tx.clone(), config.clone(), state.current_place.clone());
     proactive::spawn(
         events_tx.clone(),
         brain.clone(),
@@ -192,6 +194,8 @@ Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) 
         .route("/mcp", post(mcp::mcp_handler))
         // Position envoyee par l'appli mobile hors appel (cf. `location.rs`).
         .route("/location", post(location::location_handler))
+        // Appele par le timer de reveil (cf. `sleep.rs`), avec un secret tire au demarrage.
+        .route("/wake", post(sleep::wake_handler))
         .merge(auth_routes)
         .with_state(state);
 

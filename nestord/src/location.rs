@@ -34,6 +34,19 @@ pub struct LocationReport {
     pub token: Option<String>,
 }
 
+static LAST_FIX_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Age de la derniere position recue, `None` si aucune.
+pub fn last_fix_age_ms() -> Option<u64> {
+    let last = LAST_FIX_MS.load(std::sync::atomic::Ordering::Relaxed);
+    (last > 0).then(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| (d.as_millis() as u64).saturating_sub(last))
+            .unwrap_or(0)
+    })
+}
+
 /// Met a jour le lieu courant et, s'il change, rediffuse le contexte.
 /// Retourne le lieu reconnu.
 pub fn apply(
@@ -43,6 +56,10 @@ pub fn apply(
     lat: f64,
     lon: f64,
 ) -> Option<String> {
+    LAST_FIX_MS.store(
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
+        std::sync::atomic::Ordering::Relaxed,
+    );
     let place = config.place_at(lat, lon).map(str::to_string);
     let changed = {
         let mut current = current_place.lock().unwrap();

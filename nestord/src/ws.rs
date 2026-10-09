@@ -175,6 +175,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, kind: &'static s
     let brain_for_nudge = state.brain.clone();
     let address_form = state.config.address_form.clone();
     tokio::spawn(async move {
+        // Reveil survenu sans personne pour l'entendre : l'annonce de la journee d'abord.
+        if let Some(announcement) = crate::sleep::take_pending_announcement() {
+            if let Err(err) = brain_for_nudge.send_internal_report(&announcement).await {
+                tracing::error!(?err, "annonce de reveil perdue");
+            }
+        }
         let due = match todos.due_now() {
             Ok(due) => due,
             Err(err) => {

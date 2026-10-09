@@ -100,6 +100,23 @@ export const SituationPanel: React.FC<{ context: ContextInfo | null }> = ({ cont
             <span className="text-slate-400">autorisée</span>
           )}
         </Row>
+        <Row label="Veille nocturne">
+          {!context?.sleep_managed ? (
+            <Unknown>non gérée</Unknown>
+          ) : context.sleep_allowed ? (
+            <span className="text-emerald-300">
+              permise · réveil {context.wake_at_ms ? formatEventStart(context.wake_at_ms, now) : 'armé'}
+            </span>
+          ) : (
+            <>
+              <span className="text-amber-300">différée</span>
+              <span className="block text-[12px] text-slate-400">{context.sleep_blockers.join(', ')}</span>
+              {context.wake_armed && context.wake_at_ms && (
+                <span className="block text-[12px] text-slate-400">réveil armé {formatEventStart(context.wake_at_ms, now)}</span>
+              )}
+            </>
+          )}
+        </Row>
         <Row label="Prochain rendez-vous">
           {!context?.calendar_connected ? (
             <Unknown>agenda non branché</Unknown>

@@ -42,6 +42,8 @@ pub struct Config {
     pub power: PowerConfig,
     /// Agenda Google en lecture directe (cf. `calendar.rs`).
     pub google: GoogleConfig,
+    /// Veille nocturne et reveil (cf. `sleep.rs`).
+    pub sleep: SleepConfig,
     /// Jeton partage exige pour se connecter a `/ws` (query `?token=...`).
     /// `NESTORD_AUTH_TOKEN` a priorite. Absent (defaut) : pas de verification,
     /// tolerable tant que nestord n'ecoute que sur `127.0.0.1` - a definir
@@ -79,6 +81,7 @@ impl Default for Config {
             proactive: ProactiveConfig::default(),
             power: PowerConfig::default(),
             google: GoogleConfig::default(),
+            sleep: SleepConfig::default(),
             auth_token: None,
             auth_token_sha256: None,
             allowed_origins: Vec::new(),
@@ -105,6 +108,39 @@ pub struct GoogleConfig {
 impl Default for GoogleConfig {
     fn default() -> Self {
         Self { client_id: None, client_secret: None, calendar_ids: vec!["primary".to_string()], poll_minutes: 5, horizon_hours: 36 }
+    }
+}
+
+/// Veille nocturne (`sleep.rs`) : conditions pour laisser dormir la machine.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct SleepConfig {
+    /// nestord gere la veille : verrou « veille differee » tant que les conditions
+    /// ne sont pas reunies, reveil programme avant de laisser dormir.
+    pub enabled: bool,
+    /// Nom du lieu (`[[places]]`) qui vaut « chez lui ».
+    pub home_place: String,
+    /// Exiger une position fraiche au domicile. `false` : la position ne compte pas
+    /// (sans partage de position depuis le telephone, la machine ne dormirait jamais).
+    pub require_home: bool,
+    pub location_max_age_minutes: u64,
+    /// Hors heures calmes, repos seulement si aucun rendez-vous dans ce delai.
+    pub rest_free_hours: u64,
+    /// Demander la mise en veille (`systemctl suspend`) des que c'est permis, au lieu
+    /// de laisser la politique d'economie d'energie de GNOME le faire.
+    pub force_suspend: bool,
+}
+
+impl Default for SleepConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            home_place: "domicile".to_string(),
+            require_home: true,
+            location_max_age_minutes: 180,
+            rest_free_hours: 4,
+            force_suspend: false,
+        }
     }
 }
 
