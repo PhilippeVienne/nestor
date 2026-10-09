@@ -1,6 +1,6 @@
 # Vision de Nestor
 
-Date : 2026-09-12
+Date : 2026-09-12 (feuille de route révisée le 2026-10-09)
 Destinataire : l'agent qui développe Nestor (nestord, appli mobile, UI web).
 
 Ce document fixe le cap. Il ne remplace ni `docs/missions.md` ni
@@ -363,75 +363,119 @@ Déroulé :
 
 ## 4. Feuille de route
 
+Mise à jour : 2026-10-09, après relecture du code. Les étapes 1 et 2 de la
+version du 12 septembre sont réalisées ; l'ordre des étapes suivantes est
+revu pour faire passer d'abord ce qui n'a besoin d'aucune source nouvelle.
+
 ### Ce qui existe déjà
 
 - [x] Daemon nestord : WebSocket `/ws`, serveur MCP `/mcp`, instantané à la
       connexion.
 - [x] Session `claude` headless en stream-json, prompt vocal
-      `VOICE_SYSTEM_PROMPT`, purge des variables d'API.
+      `VOICE_SYSTEM_PROMPT`, purge des variables d'API, mode auto du CLI.
 - [x] Missions déléguées (`claude` / `agy`), progression, annulation motivée,
       clôture des outils ouverts, routage selon le quota.
-- [x] Suivi du quota Claude (`usage.rs`).
-- [x] Pipeline audio local (VAD, Whisper, Piper) derrière `full-audio`.
-- [x] UI web (orbe, dialogue, console d'outils, panneau de missions).
+- [x] Suivi du quota Claude (`usage.rs`), bascule en mode réduit `agy` quand
+      la session `claude` meurt ou que le quota est épuisé (`brain.rs`).
+- [x] Pipeline audio local (VAD, Whisper, Piper) derrière `full-audio` ;
+      barge-in vocal avec AEC côté serveur ; mot d'activation ; filtre des
+      transcriptions hallucinées ; prototype Smart Turn désactivé par défaut.
+- [x] Personnalité de majordome en tête du prompt, forme d'adresse
+      configurable (`address_form`, `NESTORD_ADDRESS_FORM`).
+- [x] Contexte tenu par nestord : lieux nommés avec rayon, heures calmes,
+      outil MCP `get_context`, événement `context` sur `/ws`, position reçue
+      sur `/ws` pendant un appel (`ClientEvent::Location`).
+- [x] Tâches (`todo.rs`, SQLite) : outils MCP `todo_*`, commandes UI, rappel
+      des tâches dues par une boucle de fond toutes les cinq minutes.
+- [x] Sécurité : jeton d'accès stocké en empreinte, passkey WebAuthn pour
+      l'interface web, secret distinct pour `/mcp`, origines vérifiées,
+      secrets retirés de l'environnement de l'assistant.
+- [x] Connecteurs MCP externes relayés par nestord (lecture libre, accord
+      pour les écritures), juge local (Ollama) avec règles fixes.
+- [x] UI web : orbe, dialogue, console d'outils, missions, tableau de bord,
+      panneau Conscience, réglages à chaud, écran de connexion.
 - [x] Appli mobile Android : appel via l'API Telecom, audio full-duplex,
-      transcription et barge-in.
+      transcription, barge-in, confirmations en attente, URL et jeton
+      persistés (`SecureStore`).
 - [x] Accès Gmail dans la session via les connecteurs claude.ai.
 
-### Étape 1 — Personnalité
+### Étape A — Clore le chantier mobile en cours
 
-- [ ] Ajouter le paragraphe de personnalité en tête de `VOICE_SYSTEM_PROMPT`.
-- [ ] Vérifier à l'usage que les réponses restent courtes et dictables.
-- [ ] Rendre la forme d'adresse configurable.
+- [ ] Valider sur appareil le diff non commité de `NestorCallManager.kt`
+      (lecture TTS par thread dédié, AudioTrack recréé à la fréquence
+      annoncée, accusé de fermeture WebSocket, transcriptions `is_final`),
+      puis committer.
+- [ ] Mettre `mobile/README.md` à jour : la voix est Piper à 22 050 Hz, la
+      fréquence vient du champ `sample_rate` de chaque `audio_chunk`, pas
+      d'une constante.
+- [ ] Le filet de sécurité « outils restés ouverts » côté mobile est sans
+      objet : l'appli ne suit pas les appels d'outils des missions. À
+      reprendre seulement si elle les affiche un jour.
 
-### Étape 2 — Socle du contexte et sécurité réseau
+### Étape B — Dette courte
 
-- [ ] Module de contexte dans nestord, outil MCP `get_context`, événement
-      `context` sur `/ws` et dans l'instantané.
-- [ ] Configuration (lieux nommés, rayons, heures calmes, réveil par défaut).
-- [ ] Jeton d'authentification sur `/ws` et les nouveaux endpoints ; accès
-      distant par réseau privé ; `/mcp` réservé à la boucle locale.
-- [ ] Remplacer les URL codées en dur de l'appli mobile par une
-      configuration persistée (URL + jeton).
-- [ ] Filet de sécurité mobile sur les outils restés ouverts (reliquat de
-      `.agent/reponse-annulation-mission-ui.md`).
+- [ ] `web/src/hooks/useNestorWebSocket.ts` : le `useCallback` signalé par
+      `oxlint` (dépendances manquantes) peut figer d'anciennes closures ;
+      corriger, puis traiter les cinq autres avertissements.
+- [ ] Automatiser le test d'annulation de mission décrit dans
+      `.agent/reponse-annulation-mission-ui.md` (commande longue, annulation,
+      aucun outil laissé ouvert).
+- [ ] Écran de liste et de révocation des passkeys (`docs/passkey.md`).
+- [ ] Dépoussiérer `.agents/INITIAL-*.md`, `.agents/REMOTE-AUDIO-SPEC.md`,
+      `docs/audio-protocol.md` et `nestord/README.md`, qui parlent encore
+      d'Antigravity comme front et de Kokoro à 24 kHz.
 
-### Étape 3 — Position
+### Étape C — Boucle proactive généralisée
+
+Déplacée avant la position : elle n'a besoin d'aucune source nouvelle et
+c'est elle qui donne à Nestor son initiative.
+
+- [ ] Transformer la boucle de `todo.rs` en moteur de règles : tâche de fond
+      réveillée à intervalle régulier et à chaque changement de contexte,
+      dédoublonnage par événement et par palier, respect des heures calmes,
+      jamais pendant une réponse en cours de synthèse.
+- [ ] Règles sans source nouvelle : session `claude` morte ou en mode réduit
+      depuis longtemps, mission sans progression, quota au-delà du seuil,
+      tâche en retard (reprise de l'existant).
+- [ ] Sortie unique : rapport interne réinjecté dans la conversation ;
+      événement `alert` sur `/ws` pour la traçabilité, affiché dans le
+      journal d'activité de l'UI.
+
+### Étape D — Position en arrière-plan
 
 - [ ] Localisation en arrière-plan dans l'appli (Expo v57, `expo-location`,
-      `expo-task-manager`), permissions Android.
-- [ ] Endpoint `POST /location` authentifié dans nestord, mise à jour du
-      contexte, détection domicile / ailleurs.
+      `expo-task-manager`), permissions Android, sobriété (distance ou
+      quelques minutes).
+- [ ] Endpoint `POST /location` authentifié par le jeton existant ; mise à
+      jour du contexte hors appel ; aucune journalisation de la position au
+      niveau `info`.
+- [ ] Accès distant : trancher entre l'application Tailscale du système
+      (recommandé, rien à embarquer) et `libtailscale` compilée dans
+      `mobile/native/tailscale`, non intégrée et non testée sur appareil.
 
-### Étape 4 — Présence devant l'ordinateur
+### Étape E — Présence et inhibition de la veille
 
-- [ ] Client D-Bus IdleMonitor (`zbus`) : inactivité et retour d'activité.
-- [ ] Désactivation propre hors GNOME.
+- [ ] Client D-Bus (`zbus`) IdleMonitor de GNOME : inactivité et retour
+      d'activité ; désactivation propre hors GNOME, utilisateur présumé
+      présent.
+- [ ] Verrou logind unique, piloté par les raisons d'être actif (mission
+      `started`, session en `thinking` ou `speaking`, appel mobile, événement
+      imminent), avec un `why` lisible.
+- [ ] Gestion de `PrepareForSleep` et reprise après veille : relance de la
+      session `claude` si nécessaire, reconnexion des sources, recalcul du
+      contexte.
 
-### Étape 5 — Inhibition de la veille
+### Étape F — Agenda
 
-- [ ] Verrou logind unique, piloté par les raisons d'être actif (missions,
-      parole, appel, événement imminent), avec un `why` lisible.
-- [ ] Gestion de `PrepareForSleep` et reprise après veille (relance de la
-      session `claude` si nécessaire).
-
-### Étape 6 — Agenda
-
-- [ ] Brancher Google Calendar (lecture directe depuis nestord recommandée,
-      connecteur de session pour l'écriture).
-- [ ] Prochains événements et lieux dans le contexte.
-
-### Étape 7 — Boucle proactive
-
-- [ ] Tâche de fond, moteur de règles, dédoublonnage, heures calmes.
-- [ ] Règles : départ à temps (avec estimation du trajet), rendez-vous
-      imminent, mails importants, session morte, mission bloquée, quota.
-- [ ] Alertes réinjectées comme rapports internes ; événement `alert` sur
-      `/ws`.
+- [ ] Brancher Google Calendar en lecture directe depuis nestord (OAuth,
+      jeton stocké localement) ; écriture par le connecteur de session.
+- [ ] Prochains événements et lieux dans le contexte et dans `get_context`.
+- [ ] Nouvelles règles de la boucle proactive : départ à temps (estimation
+      du trajet), rendez-vous imminent, mails importants.
 - [ ] Canal nestord → mobile hors appel (notification, appel entrant pour
-      les urgences).
+      les urgences), pour choisir le bon canal d'alerte.
 
-### Étape 8 — Veille nocturne et réveil
+### Étape G — Veille nocturne et réveil
 
 - [ ] Évaluation des conditions de mise en veille (domicile, inactivité,
       aucune raison d'être actif, plage de repos).
@@ -442,7 +486,17 @@ Déroulé :
       journée.
 - [ ] Tests sur la machine cible (RTC wake, mode de veille, NVIDIA).
 
-L'ordre compte : la personnalité est immédiate ; la sécurité réseau précède
-toute remontée de position ; l'inhibition précède la mise en veille
-volontaire ; et la veille nocturne vient en dernier, parce qu'elle dépend de
-toutes les autres briques et qu'une erreur y coûte un rendez-vous manqué.
+### Chantiers parallèles, à trancher
+
+- **Mémoire** (`docs/memory.md`) : encore une proposition. Elle sert au
+  dédoublonnage fin des alertes et aux réponses sans relecture du dépôt ;
+  à valider avant l'étape F, le moteur de l'étape C pouvant d'abord
+  dédoublonner en mémoire vive.
+- **Smart Turn** (`docs/smart-turn.md`) : à tester avec de vraies
+  hésitations humaines avant de l'activer par défaut.
+
+L'ordre compte : la dette courte évite de bâtir sur du sable ; la boucle
+proactive précède la position parce qu'elle vaut déjà sans elle ;
+l'inhibition précède la mise en veille volontaire ; et la veille nocturne
+vient en dernier, parce qu'elle dépend de toutes les autres briques et
+qu'une erreur y coûte un rendez-vous manqué.
