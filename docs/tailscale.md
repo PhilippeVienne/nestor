@@ -15,6 +15,10 @@ présentation sans lien avec la machine.
 - **Depuis Internet**, `nestor.vienne.me` est un domaine personnalisé d'un
   Worker Cloudflare (`deploy/cloudflare-worker`) : Cloudflare répond lui-même
   avec la page publique, sans origine. Il n'existe aucun chemin vers kanto.
+- dnsmasq est **autoritaire** sur `nestor.vienne.me` (`local=`) : il répond l'A
+  Tailscale et rien pour l'AAAA. Sans cela, l'adresse IPv6 publiée par
+  Cloudflare pour le domaine personnalisé du Worker était transmise, et un
+  client préférant l'IPv6 arrivait sur la page publique malgré le tailnet.
 - **Depuis le tailnet**, le DNS partagé de Tailscale envoie les noms de
   `vienne.me` à dnsmasq sur kanto, qui répond `100.84.235.85` pour
   `nestor.vienne.me` et transmet le reste à Cloudflare. Le navigateur arrive
