@@ -17,6 +17,7 @@ mod onboard;
 mod passkey;
 mod protocol;
 mod settings;
+mod location;
 mod proactive;
 mod todo;
 mod usage;
@@ -181,6 +182,8 @@ Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) 
     let app = Router::new()
         .route("/ws", get(ws::ws_handler))
         .route("/mcp", post(mcp::mcp_handler))
+        // Position envoyee par l'appli mobile hors appel (cf. `location.rs`).
+        .route("/location", post(location::location_handler))
         .merge(auth_routes)
         .with_state(state);
 

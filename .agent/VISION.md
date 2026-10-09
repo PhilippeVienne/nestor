@@ -444,13 +444,16 @@ c'est elle qui donne à Nestor son initiative. Réalisée le 2026-10-09, voir
 
 ### Étape D — Position en arrière-plan
 
-- [ ] Localisation en arrière-plan dans l'appli (Expo v57, `expo-location`,
+Réalisée le 2026-10-09, voir `docs/position.md`. Reste à valider sur appareil
+(permission « Toujours autoriser », notification du service, première position).
+
+- [x] Localisation en arrière-plan dans l'appli (Expo v57, `expo-location`,
       `expo-task-manager`), permissions Android, sobriété (distance ou
       quelques minutes).
-- [ ] Endpoint `POST /location` authentifié par le jeton existant ; mise à
+- [x] Endpoint `POST /location` authentifié par le jeton existant ; mise à
       jour du contexte hors appel ; aucune journalisation de la position au
       niveau `info`.
-- [ ] Accès distant : trancher entre l'application Tailscale du système
+- [x] Accès distant : tranché pour l'application Tailscale du système
       (recommandé, rien à embarquer) et `libtailscale` compilée dans
       `mobile/native/tailscale`, non intégrée et non testée sur appareil.
 

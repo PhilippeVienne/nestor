@@ -320,14 +320,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, kind: &'static s
                         // deja recue) : ignore pour eviter un double traitement.
                     }
                     Ok(ClientEvent::Location { lat, lon }) => {
-                        let place = config.place_at(lat, lon).map(str::to_string);
-                        let mut current = current_place.lock().unwrap();
-                        if *current != place {
-                            tracing::info!(?place, "changement de lieu detecte");
-                            *current = place;
-                            drop(current);
-                            let _ = events_tx.send(crate::dashboard::context_event(&config, &current_place));
-                        }
+                        crate::location::apply(&config, &current_place, &events_tx, lat, lon);
                     }
                     Err(err) => {
                         tracing::debug!(?err, raw = %text, "message client non reconnu");

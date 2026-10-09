@@ -9,10 +9,12 @@ import {
   SafeAreaView,
   StatusBar,
   ActivityIndicator,
+  Switch,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SoundWaveOrb } from '../components/SoundWaveOrb';
 import { loadConnection, saveConnection, splitTokenFromUrl } from '../storage/connection';
+import { isSharingActive, isSharingEnabled, startSharing, stopSharing } from '../location/sharing';
 
 interface DialerScreenProps {
   onStartCall: (serverUrl: string, token?: string) => void;
@@ -28,13 +30,45 @@ export const DialerScreen: React.FC<DialerScreenProps> = ({
   const [serverUrl, setServerUrl] = useState('ws://10.0.2.2:8340/ws');
   const [token, setToken] = useState('');
 
+  // Partage de position en arriere-plan : preference memorisee et etat reel du suivi.
+  const [sharing, setSharing] = useState(false);
+  const [sharingBusy, setSharingBusy] = useState(false);
+  const [sharingNote, setSharingNote] = useState<string | null>(null);
+
   // Restaure la derniere connexion memorisee (URL + jeton d'onboarding).
   useEffect(() => {
     loadConnection().then((saved) => {
       if (saved.serverUrl) setServerUrl(saved.serverUrl);
       if (saved.token) setToken(saved.token);
     });
+    Promise.all([isSharingEnabled(), isSharingActive()]).then(([enabled, active]) => {
+      setSharing(enabled && active);
+      if (enabled && !active) setSharingNote("Le suivi s'est arrêté : réactivez-le.");
+    });
   }, []);
+
+  const toggleSharing = async (next: boolean) => {
+    setSharingBusy(true);
+    setSharingNote(null);
+    try {
+      if (next) {
+        // Le jeton doit etre memorise avant : la tache de fond le relit depuis le stockage.
+        const connection = splitTokenFromUrl(serverUrl, token);
+        await saveConnection(connection.url, connection.token);
+        const result = await startSharing();
+        setSharing(result.ok);
+        if (!result.ok) setSharingNote(result.reason);
+      } else {
+        await stopSharing();
+        setSharing(false);
+      }
+    } catch (err) {
+      setSharing(false);
+      setSharingNote(err instanceof Error ? err.message : 'Activation impossible.');
+    } finally {
+      setSharingBusy(false);
+    }
+  };
 
   const handleStart = () => {
     const connection = splitTokenFromUrl(serverUrl, token);
@@ -125,6 +159,26 @@ export const DialerScreen: React.FC<DialerScreenProps> = ({
               </TouchableOpacity>
             ))}
           </View>
+        </View>
+
+        {/* Partage de position en arriere-plan */}
+        <View style={styles.card}>
+          <View style={styles.switchRow}>
+            <View style={styles.switchTextContainer}>
+              <Text style={styles.cardLabel}>Partager ma position avec Nestor</Text>
+              <Text style={styles.featureDesc}>
+                Hors appel, tous les 200 m ou 5 minutes. Nestor n'en garde que le lieu reconnu (domicile, bureau…).
+              </Text>
+            </View>
+            <Switch
+              value={sharing}
+              disabled={sharingBusy}
+              onValueChange={toggleSharing}
+              trackColor={{ false: '#334155', true: 'rgba(56, 189, 248, 0.5)' }}
+              thumbColor={sharing ? '#38bdf8' : '#94a3b8'}
+            />
+          </View>
+          {sharingNote && <Text style={styles.sharingNote}>{sharingNote}</Text>}
         </View>
 
         {/* Feature Highlights */}
@@ -314,6 +368,20 @@ const styles = StyleSheet.create({
   presetChipTextActive: {
     color: '#38bdf8',
     fontWeight: '600',
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  switchTextContainer: {
+    flex: 1,
+  },
+  sharingNote: {
+    marginTop: 10,
+    fontSize: 12,
+    color: '#fbbf24',
+    lineHeight: 16,
   },
   featuresContainer: {
     width: '100%',
