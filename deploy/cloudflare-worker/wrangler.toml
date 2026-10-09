@@ -4,6 +4,8 @@
 #   npx wrangler login && npx wrangler deploy
 name = "nestor-public"
 main = "src/index.js"
+# Identifiant de compte (pas un secret) : evite a wrangler de lister les comptes.
+account_id = "700beb55de5689cf0e62db512e195b06"
 compatibility_date = "2026-10-01"
 
 [[routes]]
