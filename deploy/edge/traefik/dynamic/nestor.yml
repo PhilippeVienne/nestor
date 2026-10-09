@@ -3,17 +3,30 @@
 # - kanto.felis-ionian.ts.net : certificat fourni par Tailscale (certs/, renouvele par
 #   le timer nestor-edge-cert), vers le service que `tailscale serve` publiait sur le 443.
 http:
+  middlewares:
+    # En-tetes de durcissement : HSTS (le nom n'existe qu'en HTTPS), pas d'encadrement
+    # par un autre site, pas de devinette de type, referer limite a l'origine.
+    nestor-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: false
+        frameDeny: true
+        contentTypeNosniff: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+
   routers:
     nestor-api:
       rule: "Host(`nestor.vienne.me`) && (PathPrefix(`/ws`) || PathPrefix(`/auth`) || PathPrefix(`/location`))"
       entryPoints: [websecure]
       service: nestord-api
+      middlewares: [nestor-headers]
       tls:
         certResolver: cloudflare
     nestor-ui:
       rule: "Host(`nestor.vienne.me`)"
       entryPoints: [websecure]
       service: nestord-ui
+      middlewares: [nestor-headers]
       tls:
         certResolver: cloudflare
     kanto-ts:
