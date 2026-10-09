@@ -112,6 +112,8 @@ La première publication, par `tailscale serve --https=8443` sur
 
 `deploy/systemd/nestord.service`, copié dans `~/.config/systemd/user/`, activé le
 2026-10-09 avec `loginctl enable-linger` : le daemon démarre avec la session
-utilisateur et survit à sa fermeture. Le PATH du service inclut `~/.local/bin`
+utilisateur et survit à sa fermeture. Il lance le binaire **release**
+(`cargo build --release --features full-audio`, puis `systemctl --user restart nestord`),
+bien plus rapide que le debug sur la transcription. Le PATH du service inclut `~/.local/bin`
 (`claude`, `uvx`) : sans lui, la session `claude` ne se lance pas et le service
 redémarre en boucle. Journal : `journalctl --user -u nestord.service -f`.

@@ -11,7 +11,7 @@ Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
 # Bibliotheques CUDA 13 reutilisees d'Ollama (cf. nestord/README.md).
 Environment=LD_LIBRARY_PATH=/usr/local/lib/ollama/cuda_v13
 Environment=RUST_LOG=nestord=info
-ExecStart=%h/github.com/PhilippeVienne/nestor/nestord/target/debug/nestord
+ExecStart=%h/github.com/PhilippeVienne/nestor/nestord/target/release/nestord
 Restart=on-failure
 RestartSec=5
 
