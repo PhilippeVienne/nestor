@@ -15,6 +15,7 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SoundWaveOrb } from '../components/SoundWaveOrb';
 import { useNestorCall, PendingRequest } from '../hooks/useNestorCall';
+import { alpha, colors, fonts, radius } from '../theme';
 
 interface CallScreenProps {
   call: ReturnType<typeof useNestorCall>;
@@ -62,7 +63,7 @@ const PendingRequestCard: React.FC<{
   return (
     <View style={styles.pendingCard} accessibilityRole="alert">
       <View style={styles.pendingHeader}>
-        <Ionicons name="alert-circle" size={16} color="#fbbf24" />
+        <Ionicons name="alert-circle" size={16} color={colors.alert300} />
         <Text style={styles.pendingTitle}>{requestTitle(request)}</Text>
       </View>
 
@@ -175,13 +176,13 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
   const getStatusBadgeColor = () => {
     switch (call.nestorState) {
       case 'listening':
-        return '#0284c7';
+        return colors.listen600;
       case 'thinking':
-        return '#7c3aed';
+        return colors.think600;
       case 'speaking':
-        return '#059669';
+        return colors.brass500;
       default:
-        return '#334155';
+        return colors.ink700;
     }
   };
 
@@ -215,17 +216,13 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor="#070b14" />
+      <StatusBar barStyle="light-content" backgroundColor={colors.ink950} />
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         {/* Top In-Call Header */}
         <View style={styles.header}>
-          <View style={styles.telecomBadge}>
-            <Ionicons name="shield-checkmark" size={13} color="#38bdf8" />
-            <Text style={styles.telecomBadgeText}>Appel Système Android • Telecom</Text>
-          </View>
           <Text style={styles.callerName}>Nestor</Text>
           <Text style={styles.callTimer}>{call.callDuration}</Text>
 
@@ -253,8 +250,8 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
               size={11}
               color={
                 call.backendStatus.is_fallback || call.backendStatus.active_backend === 'agy'
-                  ? '#fbbf24'
-                  : '#818cf8'
+                  ? colors.alert300
+                  : colors.ivory300
               }
             />
             <Text
@@ -266,8 +263,8 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
               ]}
             >
               {call.backendStatus.is_fallback || call.backendStatus.active_backend === 'agy'
-                ? '⚡ Mode Réduit (AGY)'
-                : 'Claude Code'}
+                ? 'Mode réduit'
+                : 'Claude'}
             </Text>
           </TouchableOpacity>
 
@@ -280,7 +277,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
             <MaterialCommunityIcons
               name={getAudioRouteIcon() as any}
               size={14}
-              color="#94a3b8"
+              color={colors.ivory500}
             />
             <Text style={styles.audioRouteText}>{getAudioRouteLabel()}</Text>
           </TouchableOpacity>
@@ -307,7 +304,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
             pointerEvents="none"
             accessibilityLiveRegion="polite"
           >
-            <MaterialCommunityIcons name="hand-back-right" size={12} color="#f59e0b" />
+            <MaterialCommunityIcons name="hand-back-right" size={12} color={colors.alert400} />
             <Text style={styles.interruptPillText}>Interruption détectée</Text>
           </Animated.View>
         </View>
@@ -338,7 +335,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
             <View style={styles.toolsBar}>
               {call.activeTools.map((t) => (
                 <View key={t.id} style={styles.toolTag}>
-                  <Ionicons name="terminal" size={11} color="#38bdf8" />
+                  <Ionicons name="terminal" size={11} color={colors.listen300} />
                   <Text style={styles.toolTagText}>{t.name}</Text>
                 </View>
               ))}
@@ -366,7 +363,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
                   ]}
                 >
                   <Text style={styles.messageRole}>
-                    {msg.role === 'user' ? 'Vous' : 'Nestor'} • {msg.time}
+                    {msg.role === 'user' ? 'Vous' : 'Nestor'} · {msg.time}
                   </Text>
                   <Text style={styles.messageText}>{msg.text}</Text>
                 </View>
@@ -381,7 +378,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
             <TextInput
               style={styles.textInput}
               placeholder="Écrire à Nestor..."
-              placeholderTextColor="#64748b"
+              placeholderTextColor={colors.ivory700}
               value={inputText}
               onChangeText={setInputText}
               onSubmitEditing={handleSendText}
@@ -389,7 +386,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
               autoFocus
             />
             <TouchableOpacity style={styles.sendButton} onPress={handleSendText}>
-              <Ionicons name="arrow-up-circle" size={32} color="#38bdf8" />
+              <Ionicons name="arrow-up-circle" size={34} color={colors.brass400} />
             </TouchableOpacity>
           </View>
         )}
@@ -405,7 +402,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
             <Ionicons
               name={call.isMuted ? 'mic-off' : 'mic'}
               size={24}
-              color={call.isMuted ? '#f43f5e' : '#f8fafc'}
+              color={call.isMuted ? colors.danger300 : colors.ivory100}
             />
             <Text style={styles.controlLabel}>{call.isMuted ? 'Micro coupé' : 'Micro'}</Text>
           </TouchableOpacity>
@@ -422,7 +419,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
             <Ionicons
               name={call.isSpeakerOn ? 'volume-high' : 'volume-mute'}
               size={24}
-              color={call.isSpeakerOn ? '#38bdf8' : '#f8fafc'}
+              color={call.isSpeakerOn ? colors.brass300 : colors.ivory100}
             />
             <Text style={styles.controlLabel}>
               {call.isSpeakerOn ? 'HP externe' : 'Écouteur'}
@@ -435,7 +432,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
             onPress={call.bargeIn}
             activeOpacity={0.8}
           >
-            <MaterialCommunityIcons name="hand-back-right" size={24} color="#f59e0b" />
+            <MaterialCommunityIcons name="hand-back-right" size={24} color={colors.alert300} />
             <Text style={styles.controlLabel}>Interrompre</Text>
           </TouchableOpacity>
 
@@ -445,7 +442,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
             onPress={() => setIsKeyboardOpen(!isKeyboardOpen)}
             activeOpacity={0.8}
           >
-            <Ionicons name="keypad" size={24} color="#f8fafc" />
+            <Ionicons name="keypad" size={24} color={colors.ivory100} />
             <Text style={styles.controlLabel}>Clavier</Text>
           </TouchableOpacity>
 
@@ -458,7 +455,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
             }}
             activeOpacity={0.8}
           >
-            <MaterialCommunityIcons name="phone-hangup" size={30} color="#ffffff" />
+            <MaterialCommunityIcons name="phone-hangup" size={30} color={colors.ivory50} />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -469,7 +466,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({ call, onEndCall }) => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#070b14',
+    backgroundColor: colors.ink950,
   },
   container: {
     flex: 1,
@@ -477,97 +474,78 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  telecomBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
-    borderColor: 'rgba(56, 189, 248, 0.3)',
-    borderWidth: 1,
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    gap: 6,
-    marginBottom: 8,
-  },
-  telecomBadgeText: {
-    color: '#38bdf8',
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.3,
+    paddingTop: 14,
+    paddingBottom: 6,
+    gap: 4,
   },
   callerName: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: '#f8fafc',
-    letterSpacing: 0.5,
+    fontFamily: fonts.display,
+    fontSize: 30,
+    color: colors.ivory50,
   },
   callTimer: {
     fontSize: 15,
-    color: '#94a3b8',
-    marginTop: 2,
+    color: colors.ivory500,
     fontVariant: ['tabular-nums'],
   },
   backendBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    marginTop: 6,
+    marginTop: 4,
+    height: 28,
     paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 12,
+    borderRadius: radius.pill,
     borderWidth: 1,
+    backgroundColor: alpha.ink(0.6),
   },
   backendBadgeAgy: {
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    borderColor: 'rgba(245, 158, 11, 0.4)',
+    borderColor: alpha.alert(0.6),
   },
   backendBadgeClaude: {
-    backgroundColor: 'rgba(99, 102, 241, 0.15)',
-    borderColor: 'rgba(99, 102, 241, 0.35)',
+    borderColor: colors.ink700,
   },
   backendBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.3,
+    fontSize: 12,
+    fontWeight: '500',
   },
   backendTextAgy: {
-    color: '#fbbf24',
+    color: colors.alert300,
   },
   backendTextClaude: {
-    color: '#a5b4fc',
+    color: colors.ivory300,
   },
   audioRoutePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginTop: 6,
-    backgroundColor: '#111827',
+    height: 28,
     paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 12,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.ink700,
+    backgroundColor: alpha.ink(0.6),
   },
   audioRouteText: {
-    fontSize: 11,
-    color: '#94a3b8',
+    fontSize: 12,
+    color: colors.ivory300,
   },
   orbSection: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingVertical: 8,
   },
   statusPill: {
-    marginTop: 8,
+    marginTop: 4,
+    height: 30,
     paddingHorizontal: 14,
-    paddingVertical: 5,
-    borderRadius: 16,
+    borderRadius: radius.pill,
+    justifyContent: 'center',
   },
   statusPillText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '600',
+    color: colors.ivory50,
+    fontSize: 13,
+    fontWeight: '500',
   },
   interruptPill: {
     position: 'absolute',
@@ -575,17 +553,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    borderColor: 'rgba(245, 158, 11, 0.45)',
+    backgroundColor: alpha.alert(0.15),
+    borderColor: alpha.alert(0.5),
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: radius.pill,
     paddingHorizontal: 10,
     paddingVertical: 3,
   },
   interruptPillText: {
-    color: '#fbbf24',
-    fontSize: 11,
-    fontWeight: '600',
+    color: colors.alert300,
+    fontSize: 12,
+    fontWeight: '500',
   },
   pendingSection: {
     marginHorizontal: 16,
@@ -593,7 +571,7 @@ const styles = StyleSheet.create({
     maxHeight: '45%',
   },
   pendingCount: {
-    color: '#fbbf24',
+    color: colors.alert300,
     fontSize: 12,
     fontWeight: '600',
     marginBottom: 6,
@@ -602,10 +580,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   pendingCard: {
-    backgroundColor: 'rgba(69, 26, 3, 0.55)',
-    borderColor: 'rgba(245, 158, 11, 0.6)',
+    backgroundColor: alpha.alert(0.1),
+    borderColor: alpha.alert(0.5),
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: radius.card,
     padding: 12,
     gap: 6,
   },
@@ -615,48 +593,48 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   pendingTitle: {
-    color: '#fde68a',
-    fontSize: 14,
-    fontWeight: '700',
+    color: colors.alert300,
+    fontSize: 15,
+    fontWeight: '600',
     flexShrink: 1,
   },
   pendingText: {
-    color: '#f8fafc',
+    color: colors.ivory100,
     fontSize: 15,
     lineHeight: 20,
   },
   pendingLabel: {
-    color: '#e2e8f0',
+    color: colors.ivory300,
     fontSize: 13,
     lineHeight: 18,
   },
   pendingMono: {
-    color: '#f8fafc',
+    color: colors.ivory100,
     fontWeight: '600',
-    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier',
+    fontFamily: fonts.mono,
   },
   pendingArgsBox: {
-    backgroundColor: 'rgba(2, 6, 23, 0.6)',
+    backgroundColor: colors.ink950,
     borderRadius: 8,
     padding: 8,
   },
   pendingArgs: {
-    color: '#cbd5e1',
+    color: colors.ivory300,
     fontSize: 12,
     lineHeight: 16,
-    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier',
+    fontFamily: fonts.mono,
   },
   pendingReason: {
-    color: '#cbd5e1',
+    color: colors.ivory300,
     fontSize: 13,
     lineHeight: 18,
   },
   pendingMeta: {
-    color: '#94a3b8',
+    color: colors.ivory500,
     fontSize: 11,
   },
   pendingError: {
-    color: '#fda4af',
+    color: colors.danger300,
     fontSize: 12,
   },
   pendingActions: {
@@ -667,7 +645,7 @@ const styles = StyleSheet.create({
   pendingButton: {
     flex: 1,
     minHeight: 46,
-    borderRadius: 10,
+    borderRadius: radius.field,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -676,30 +654,30 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   pendingApprove: {
-    backgroundColor: 'rgba(8, 145, 178, 0.45)',
-    borderColor: '#22d3ee',
+    backgroundColor: alpha.brass(0.25),
+    borderColor: colors.brass500,
   },
   pendingApproveText: {
-    color: '#ecfeff',
+    color: colors.brass200,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   pendingRefuse: {
-    borderColor: '#64748b',
+    borderColor: colors.ink600,
   },
   pendingRefuseText: {
-    color: '#e2e8f0',
+    color: colors.ivory100,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   transcriptSection: {
     flex: 1,
     marginHorizontal: 16,
     marginBottom: 12,
-    backgroundColor: 'rgba(15, 23, 42, 0.65)',
-    borderRadius: 16,
+    backgroundColor: alpha.ink(0.6),
+    borderRadius: radius.card,
     borderWidth: 1,
-    borderColor: '#1e293b',
+    borderColor: colors.ink800,
     overflow: 'hidden',
   },
   toolsBar: {
@@ -707,28 +685,28 @@ const styles = StyleSheet.create({
     gap: 6,
     padding: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
+    borderBottomColor: colors.ink800,
   },
   toolTag: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    backgroundColor: alpha.listen(0.12),
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 8,
   },
   toolTagText: {
-    color: '#38bdf8',
+    color: colors.listen300,
     fontSize: 11,
-    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier',
+    fontFamily: fonts.mono,
   },
   messagesList: {
     flex: 1,
   },
   messagesContent: {
     padding: 12,
-    gap: 8,
+    gap: 10,
   },
   emptyMessages: {
     alignItems: 'center',
@@ -736,36 +714,39 @@ const styles = StyleSheet.create({
     paddingVertical: 36,
   },
   emptyMessagesText: {
-    color: '#64748b',
+    color: colors.ivory500,
     fontSize: 13,
     textAlign: 'center',
     lineHeight: 18,
   },
   messageBubble: {
-    borderRadius: 12,
-    padding: 10,
-    maxWidth: '85%',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    maxWidth: '86%',
+    borderWidth: 1,
   },
   userBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: '#0369a1',
+    backgroundColor: colors.ink800,
+    borderColor: colors.ink700,
+    borderTopRightRadius: 4,
   },
   assistantBubble: {
     alignSelf: 'flex-start',
-    backgroundColor: '#1e293b',
-    borderWidth: 1,
-    borderColor: '#334155',
+    backgroundColor: colors.ink900,
+    borderColor: colors.ink800,
+    borderTopLeftRadius: 4,
   },
   messageRole: {
-    fontSize: 10,
-    color: '#94a3b8',
+    fontSize: 11,
+    color: colors.ivory500,
     marginBottom: 2,
-    textTransform: 'uppercase',
   },
   messageText: {
-    color: '#f8fafc',
-    fontSize: 14,
-    lineHeight: 20,
+    color: colors.ivory100,
+    fontSize: 15,
+    lineHeight: 21,
   },
   textInputBar: {
     flexDirection: 'row',
@@ -777,13 +758,13 @@ const styles = StyleSheet.create({
   textInput: {
     flex: 1,
     height: 44,
-    backgroundColor: '#1e293b',
+    backgroundColor: colors.ink950,
     borderRadius: 22,
     paddingHorizontal: 16,
-    color: '#f8fafc',
-    fontSize: 14,
+    color: colors.ivory100,
+    fontSize: 15,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: colors.ink500,
   },
   sendButton: {
     padding: 4,
@@ -800,23 +781,23 @@ const styles = StyleSheet.create({
     width: 62,
     height: 62,
     borderRadius: 31,
-    backgroundColor: '#1e293b',
+    backgroundColor: colors.ink850,
+    borderWidth: 1,
+    borderColor: colors.ink500,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,
   },
   controlButtonActive: {
-    backgroundColor: 'rgba(244, 63, 94, 0.25)',
-    borderWidth: 1,
-    borderColor: '#f43f5e',
+    backgroundColor: alpha.danger(0.18),
+    borderColor: colors.danger400,
   },
   controlButtonActiveCyan: {
-    backgroundColor: 'rgba(56, 189, 248, 0.25)',
-    borderWidth: 1,
-    borderColor: '#38bdf8',
+    backgroundColor: alpha.brass(0.18),
+    borderColor: colors.brass500,
   },
   controlLabel: {
-    color: '#94a3b8',
+    color: colors.ivory500,
     fontSize: 9,
     fontWeight: '500',
   },
@@ -824,13 +805,9 @@ const styles = StyleSheet.create({
     width: 66,
     height: 66,
     borderRadius: 33,
-    backgroundColor: '#e11d48',
+    backgroundColor: colors.danger600,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#e11d48',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 8,
+    elevation: 6,
   },
 });

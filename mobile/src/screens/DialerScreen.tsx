@@ -10,13 +10,15 @@ import {
   StatusBar,
   ActivityIndicator,
   Switch,
+  PermissionsAndroid,
+  Platform,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SoundWaveOrb } from '../components/SoundWaveOrb';
-import { PermissionsAndroid, Platform } from 'react-native';
 import { NestorCall } from '../native/NestorCall';
 import { isStandbyEnabled, loadConnection, saveConnection, saveStandbyEnabled, splitTokenFromUrl } from '../storage/connection';
 import { isSharingActive, isSharingEnabled, startSharing, stopSharing } from '../location/sharing';
+import { alpha, colors, fonts, radius } from '../theme';
 
 interface DialerScreenProps {
   onStartCall: (serverUrl: string, token?: string) => void;
@@ -24,42 +26,69 @@ interface DialerScreenProps {
   statusMessage?: string;
 }
 
-export const DialerScreen: React.FC<DialerScreenProps> = ({
-  onStartCall,
-  isConnecting,
-  statusMessage,
-}) => {
+/** Ligne a interrupteur : titre, explication, etat. */
+const SwitchRow: React.FC<{
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  title: string;
+  hint: string;
+  value: boolean;
+  busy: boolean;
+  note: string | null;
+  onChange: (next: boolean) => void;
+}> = ({ icon, title, hint, value, busy, note, onChange }) => (
+  <View style={styles.switchBlock}>
+    <View style={styles.switchRow}>
+      <View style={[styles.switchIcon, value && styles.switchIconActive]}>
+        <MaterialCommunityIcons name={icon} size={18} color={value ? colors.brass300 : colors.ivory500} />
+      </View>
+      <View style={styles.switchText}>
+        <Text style={styles.switchTitle}>{title}</Text>
+        <Text style={styles.switchHint}>{hint}</Text>
+      </View>
+      <Switch
+        value={value}
+        disabled={busy}
+        onValueChange={onChange}
+        trackColor={{ false: colors.ink700, true: alpha.brass(0.45) }}
+        thumbColor={value ? colors.brass300 : colors.ivory500}
+      />
+    </View>
+    {note && <Text style={styles.switchNote}>{note}</Text>}
+  </View>
+);
+
+export const DialerScreen: React.FC<DialerScreenProps> = ({ onStartCall, isConnecting, statusMessage }) => {
   const [serverUrl, setServerUrl] = useState('ws://10.0.2.2:8340/ws');
   const [token, setToken] = useState('');
-
-  // Partage de position en arriere-plan : preference memorisee et etat reel du suivi.
-  const [sharing, setSharing] = useState(false);
-  const [sharingBusy, setSharingBusy] = useState(false);
-  const [sharingNote, setSharingNote] = useState<string | null>(null);
-
-  // Restaure la derniere connexion memorisee (URL + jeton d'onboarding).
-  useEffect(() => {
-    loadConnection().then((saved) => {
-      if (saved.serverUrl) setServerUrl(saved.serverUrl);
-      if (saved.token) setToken(saved.token);
-    });
-    Promise.all([isSharingEnabled(), isSharingActive()]).then(([enabled, active]) => {
-      setSharing(enabled && active);
-      if (enabled && !active) setSharingNote("Le suivi s'est arrêté : réactivez-le.");
-    });
-  }, []);
+  const [showConnection, setShowConnection] = useState(false);
 
   // Canal hors appel : service de premier plan, relance au lancement si la preference est posee.
   const [standby, setStandby] = useState(false);
   const [standbyBusy, setStandbyBusy] = useState(false);
   const [standbyNote, setStandbyNote] = useState<string | null>(null);
 
+  // Partage de position en arriere-plan : preference memorisee et etat reel du suivi.
+  const [sharing, setSharing] = useState(false);
+  const [sharingBusy, setSharingBusy] = useState(false);
+  const [sharingNote, setSharingNote] = useState<string | null>(null);
+
+  // Restaure la derniere connexion memorisee (URL + jeton d'onboarding) et les services.
   useEffect(() => {
+    loadConnection().then((saved) => {
+      if (saved.serverUrl) setServerUrl(saved.serverUrl);
+      if (saved.token) setToken(saved.token);
+      // Sans adresse memorisee, le reglage de connexion est ouvert d'emblee.
+      if (!saved.serverUrl) setShowConnection(true);
+    });
     Promise.all([isStandbyEnabled(), NestorCall.isStandbyRunning(), loadConnection()]).then(([enabled, running, saved]) => {
       setStandby(enabled && running);
       if (enabled && !running && saved.serverUrl) {
         NestorCall.startStandby(saved.serverUrl, saved.token).then((ok) => setStandby(ok));
       }
+    });
+    Promise.all([isSharingEnabled(), isSharingActive()]).then(([enabled, active]) => {
+      setSharing(enabled && active);
+      if (enabled && !active) setSharingNote("Le suivi s'est arrêté : réactivez-le.");
     });
   }, []);
 
@@ -125,203 +154,126 @@ export const DialerScreen: React.FC<DialerScreenProps> = ({
   };
 
   const presets = [
-    { label: 'Émulateur (10.0.2.2)', url: 'ws://10.0.2.2:8340/ws' },
+    { label: 'Émulateur', url: 'ws://10.0.2.2:8340/ws' },
     { label: 'Localhost', url: 'ws://127.0.0.1:8340/ws' },
-    { label: 'Wi-Fi LAN', url: 'ws://192.168.1.50:8340/ws' },
+    { label: 'Wi-Fi', url: 'ws://192.168.1.50:8340/ws' },
     { label: 'Tailscale', url: 'wss://kanto.felis-ionian.ts.net:8443/ws' },
   ];
 
+  let host = serverUrl;
+  try {
+    host = new URL(serverUrl).host;
+  } catch {
+    // adresse en cours de saisie
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor="#070b14" />
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Nestor Branding Hero */}
-        <View style={styles.heroSection}>
-          <SoundWaveOrb state="idle" rms={0.05} peak={0.1} size={130} />
-          <Text style={styles.title}>NESTOR</Text>
-          <Text style={styles.subtitle}>Assistant Vocal Local pour Claude Code</Text>
-          <View style={styles.telecomPill}>
-            <Ionicons name="phone-portrait-outline" size={13} color="#38bdf8" />
-            <Text style={styles.telecomPillText}>API Telecom Android • Mode Appel</Text>
-          </View>
+      <StatusBar barStyle="light-content" backgroundColor={colors.ink950} />
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        {/* En-tete : l'orbe, le nom, la devise */}
+        <View style={styles.hero}>
+          <SoundWaveOrb state="idle" rms={0.03} peak={0.05} size={120} />
+          <Text style={styles.title}>Nestor</Text>
+          <Text style={styles.subtitle}>À votre service, discrètement.</Text>
         </View>
 
-        {/* Server Address Configuration Card */}
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>Adresse du daemon nestord :</Text>
-          <View style={styles.inputWrapper}>
-            <Ionicons name="server-outline" size={18} color="#64748b" style={styles.inputIcon} />
-            <TextInput
-              style={styles.textInput}
-              value={serverUrl}
-              onChangeText={setServerUrl}
-              placeholder="ws://10.0.2.2:8340/ws"
-              placeholderTextColor="#475569"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-
-          <Text style={[styles.cardLabel, { marginTop: 14 }]}>
-            Jeton d'onboarding (commande `nestord onboard`) :
-          </Text>
-          <View style={styles.inputWrapper}>
-            <Ionicons name="key-outline" size={18} color="#64748b" style={styles.inputIcon} />
-            <TextInput
-              style={styles.textInput}
-              value={token}
-              onChangeText={setToken}
-              placeholder="Optionnel si l'URL contient ?token=..."
-              placeholderTextColor="#475569"
-              autoCapitalize="none"
-              autoCorrect={false}
-              secureTextEntry
-            />
-          </View>
-
-          {/* Quick Presets */}
-          <View style={styles.presetsRow}>
-            {presets.map((p) => (
-              <TouchableOpacity
-                key={p.label}
-                style={[
-                  styles.presetChip,
-                  serverUrl === p.url && styles.presetChipActive,
-                ]}
-                onPress={() => setServerUrl(p.url)}
-              >
-                <Text
-                  style={[
-                    styles.presetChipText,
-                    serverUrl === p.url && styles.presetChipTextActive,
-                  ]}
-                >
-                  {p.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Canal hors appel */}
-        <View style={styles.card}>
-          <View style={styles.switchRow}>
-            <View style={styles.switchTextContainer}>
-              <Text style={styles.cardLabel}>Rester joignable hors appel</Text>
-              <Text style={styles.featureDesc}>
-                Connexion légère maintenue avec le daemon : alertes en notification, et le téléphone sonne au réveil programmé.
-              </Text>
-            </View>
-            <Switch
-              value={standby}
-              disabled={standbyBusy}
-              onValueChange={toggleStandby}
-              trackColor={{ false: '#334155', true: 'rgba(52, 211, 153, 0.5)' }}
-              thumbColor={standby ? '#34d399' : '#94a3b8'}
-            />
-          </View>
-          {standbyNote && <Text style={styles.sharingNote}>{standbyNote}</Text>}
-        </View>
-
-        {/* Partage de position en arriere-plan */}
-        <View style={styles.card}>
-          <View style={styles.switchRow}>
-            <View style={styles.switchTextContainer}>
-              <Text style={styles.cardLabel}>Partager ma position avec Nestor</Text>
-              <Text style={styles.featureDesc}>
-                Hors appel, tous les 200 m ou 5 minutes. Nestor n'en garde que le lieu reconnu (domicile, bureau…).
-              </Text>
-            </View>
-            <Switch
-              value={sharing}
-              disabled={sharingBusy}
-              onValueChange={toggleSharing}
-              trackColor={{ false: '#334155', true: 'rgba(56, 189, 248, 0.5)' }}
-              thumbColor={sharing ? '#38bdf8' : '#94a3b8'}
-            />
-          </View>
-          {sharingNote && <Text style={styles.sharingNote}>{sharingNote}</Text>}
-        </View>
-
-        {/* Feature Highlights */}
-        <View style={styles.featuresContainer}>
-          <View style={styles.featureRow}>
-            <View style={styles.featureIconContainer}>
-              <MaterialCommunityIcons name="phone-in-talk" size={20} color="#38bdf8" />
-            </View>
-            <View style={styles.featureTextContainer}>
-              <Text style={styles.featureTitle}>Intégration Téléphonique Android</Text>
-              <Text style={styles.featureDesc}>
-                Géré comme un vrai appel téléphonique : notification système, contrôle écran verrouillé et capteur de proximité.
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.featureRow}>
-            <View style={styles.featureIconContainer}>
-              <MaterialCommunityIcons name="microphone" size={20} color="#34d399" />
-            </View>
-            <View style={styles.featureTextContainer}>
-              <Text style={styles.featureTitle}>Full-Duplex & Élimination d'Écho (AEC)</Text>
-              <Text style={styles.featureDesc}>
-                Microphone 16 kHz mono avec annulation matérielle d'écho et bascule haut-parleur / écouteur / Bluetooth.
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.featureRow}>
-            <View style={styles.featureIconContainer}>
-              <MaterialCommunityIcons name="lightning-bolt" size={20} color="#a855f7" />
-            </View>
-            <View style={styles.featureTextContainer}>
-              <Text style={styles.featureTitle}>Barge-In Instantané</Text>
-              <Text style={styles.featureDesc}>
-                Interrompez Nestor d'un mot ou d'un appui : le flux audio TTS est coupé immédiatement.
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.featureRow}>
-            <View style={[styles.featureIconContainer, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
-              <MaterialCommunityIcons name="flash-outline" size={20} color="#fbbf24" />
-            </View>
-            <View style={styles.featureTextContainer}>
-              <Text style={styles.featureTitle}>⚡ Mode Réduit de Secours (AGY)</Text>
-              <Text style={styles.featureDesc}>
-                En cas de quota de session Claude épuisé, Nestor bascule automatiquement sur Antigravity sans rupture de dialogue.
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Status indicator if connecting */}
-        {isConnecting && (
-          <View style={styles.statusBox}>
-            <ActivityIndicator size="small" color="#38bdf8" />
-            <Text style={styles.statusText}>
-              {statusMessage || 'Établissement de la communication...'}
-            </Text>
-          </View>
-        )}
-
-        {/* Big Action Call Button */}
+        {/* Appel */}
         <TouchableOpacity
           style={[styles.callButton, isConnecting && styles.callButtonDisabled]}
           onPress={handleStart}
           disabled={isConnecting}
-          activeOpacity={0.8}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Appeler Nestor"
         >
-          <View style={styles.callButtonInner}>
-            <MaterialCommunityIcons name="phone" size={28} color="#ffffff" />
-            <Text style={styles.callButtonText}>
-              {isConnecting ? 'Connexion en cours...' : 'Appeler Nestor'}
-            </Text>
-          </View>
+          {isConnecting ? (
+            <ActivityIndicator size="small" color={colors.ink950} />
+          ) : (
+            <MaterialCommunityIcons name="phone" size={24} color={colors.ink950} />
+          )}
+          <Text style={styles.callButtonText}>{isConnecting ? statusMessage || 'Connexion…' : 'Appeler Nestor'}</Text>
         </TouchableOpacity>
+
+        {/* Services hors appel */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Hors appel</Text>
+          <SwitchRow
+            icon="bell-ring-outline"
+            title="Rester joignable"
+            hint="Alertes en notification ; le téléphone sonne au réveil programmé."
+            value={standby}
+            busy={standbyBusy}
+            note={standbyNote}
+            onChange={toggleStandby}
+          />
+          <View style={styles.separator} />
+          <SwitchRow
+            icon="map-marker-outline"
+            title="Partager ma position"
+            hint="Tous les 200 m ou 5 minutes. Nestor n'en garde que le lieu reconnu."
+            value={sharing}
+            busy={sharingBusy}
+            note={sharingNote}
+            onChange={toggleSharing}
+          />
+        </View>
+
+        {/* Connexion au daemon : repliee une fois reglee */}
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.cardHeader} onPress={() => setShowConnection(!showConnection)} activeOpacity={0.7}>
+            <View style={styles.cardHeaderText}>
+              <Text style={styles.cardTitle}>Daemon</Text>
+              {!showConnection && <Text style={styles.cardSubtitle}>{host}</Text>}
+            </View>
+            <Ionicons name={showConnection ? 'chevron-up' : 'chevron-down'} size={18} color={colors.ivory500} />
+          </TouchableOpacity>
+
+          {showConnection && (
+            <>
+              <Text style={styles.fieldLabel}>Adresse de nestord</Text>
+              <View style={styles.inputWrapper}>
+                <Ionicons name="server-outline" size={16} color={colors.ivory500} />
+                <TextInput
+                  style={styles.textInput}
+                  value={serverUrl}
+                  onChangeText={setServerUrl}
+                  placeholder="ws://10.0.2.2:8340/ws"
+                  placeholderTextColor={colors.ivory700}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+              <View style={styles.presetsRow}>
+                {presets.map((p) => (
+                  <TouchableOpacity
+                    key={p.label}
+                    style={[styles.presetChip, serverUrl === p.url && styles.presetChipActive]}
+                    onPress={() => setServerUrl(p.url)}
+                  >
+                    <Text style={[styles.presetChipText, serverUrl === p.url && styles.presetChipTextActive]}>{p.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Jeton d'accès</Text>
+              <View style={styles.inputWrapper}>
+                <Ionicons name="key-outline" size={16} color={colors.ivory500} />
+                <TextInput
+                  style={styles.textInput}
+                  value={token}
+                  onChangeText={setToken}
+                  placeholder="Fourni par nestord onboard"
+                  placeholderTextColor={colors.ivory700}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  secureTextEntry
+                />
+              </View>
+              <Text style={styles.fieldHint}>Un lien complet collé dans l'adresse, jeton compris, est accepté.</Text>
+            </>
+          )}
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -330,209 +282,174 @@ export const DialerScreen: React.FC<DialerScreenProps> = ({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#070b14',
+    backgroundColor: colors.ink950,
   },
   scrollView: {
     flex: 1,
   },
   container: {
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 64,
-    alignItems: 'center',
+    paddingTop: 12,
+    paddingBottom: 48,
+    gap: 14,
   },
-  heroSection: {
+  hero: {
     alignItems: 'center',
-    marginBottom: 28,
+    marginBottom: 4,
   },
   title: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#f8fafc',
-    letterSpacing: 3,
-    marginTop: 12,
+    fontFamily: fonts.display,
+    fontSize: 36,
+    color: colors.ivory50,
+    marginTop: -8,
   },
   subtitle: {
     fontSize: 14,
-    color: '#94a3b8',
-    marginTop: 4,
-    textAlign: 'center',
+    color: colors.ivory500,
+    marginTop: 2,
   },
-  telecomPill: {
+  callButton: {
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: colors.brass400,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
-    borderColor: 'rgba(56, 189, 248, 0.3)',
-    borderWidth: 1,
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    marginTop: 12,
+    justifyContent: 'center',
+    gap: 10,
   },
-  telecomPillText: {
-    color: '#38bdf8',
-    fontSize: 12,
+  callButtonDisabled: {
+    backgroundColor: colors.brass700,
+  },
+  callButtonText: {
+    color: colors.ink950,
+    fontSize: 18,
     fontWeight: '600',
   },
   card: {
-    width: '100%',
-    backgroundColor: 'rgba(15, 23, 42, 0.75)',
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: alpha.ink(0.7),
+    borderRadius: radius.card,
     borderWidth: 1,
-    borderColor: '#1e293b',
-    marginBottom: 24,
+    borderColor: colors.ink800,
+    padding: 16,
+    gap: 10,
   },
-  cardLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#cbd5e1',
-    marginBottom: 8,
-  },
-  inputWrapper: {
+  cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#090d16',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#334155',
-    paddingHorizontal: 12,
+    justifyContent: 'space-between',
+    minHeight: 24,
   },
-  inputIcon: {
-    marginRight: 8,
-  },
-  textInput: {
+  cardHeaderText: {
     flex: 1,
-    height: 44,
-    color: '#f8fafc',
-    fontSize: 14,
-    fontFamily: 'monospace',
+    gap: 2,
   },
-  presetsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
-    flexWrap: 'wrap',
+  cardTitle: {
+    fontFamily: fonts.display,
+    fontSize: 18,
+    color: colors.ivory100,
   },
-  presetChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    backgroundColor: '#1e293b',
-    borderWidth: 1,
-    borderColor: '#334155',
+  cardSubtitle: {
+    fontFamily: fonts.mono,
+    fontSize: 12,
+    color: colors.ivory500,
   },
-  presetChipActive: {
-    backgroundColor: 'rgba(56, 189, 248, 0.2)',
-    borderColor: '#38bdf8',
+  separator: {
+    height: 1,
+    backgroundColor: colors.ink800,
   },
-  presetChipText: {
-    fontSize: 11,
-    color: '#94a3b8',
-  },
-  presetChipTextActive: {
-    color: '#38bdf8',
-    fontWeight: '600',
+  switchBlock: {
+    gap: 6,
   },
   switchRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    minHeight: 44,
   },
-  switchTextContainer: {
-    flex: 1,
-  },
-  sharingNote: {
-    marginTop: 10,
-    fontSize: 12,
-    color: '#fbbf24',
-    lineHeight: 16,
-  },
-  featuresContainer: {
-    width: '100%',
-    gap: 16,
-    marginBottom: 24,
-  },
-  featureRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-    backgroundColor: 'rgba(15, 23, 42, 0.4)',
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#1e293b',
-  },
-  featureIconContainer: {
+  switchIcon: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#0f172a',
-    justifyContent: 'center',
+    backgroundColor: colors.ink850,
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: colors.ink500,
   },
-  featureTextContainer: {
+  switchIconActive: {
+    borderColor: colors.brass500,
+    backgroundColor: alpha.brass(0.15),
+  },
+  switchText: {
     flex: 1,
+    gap: 2,
   },
-  featureTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#f1f5f9',
-    marginBottom: 2,
+  switchTitle: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: colors.ivory100,
   },
-  featureDesc: {
-    fontSize: 11,
-    color: '#94a3b8',
+  switchHint: {
+    fontSize: 12,
+    color: colors.ivory500,
     lineHeight: 16,
   },
-  statusBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: 'rgba(56, 189, 248, 0.1)',
-    borderColor: 'rgba(56, 189, 248, 0.3)',
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginBottom: 16,
-    width: '100%',
+  switchNote: {
+    fontSize: 12,
+    color: colors.alert300,
+    lineHeight: 16,
+    marginLeft: 48,
   },
-  statusText: {
-    color: '#38bdf8',
+  fieldLabel: {
     fontSize: 13,
-    fontWeight: '500',
+    color: colors.ivory300,
   },
-  callButton: {
-    width: '100%',
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: '#059669',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#059669',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 14,
-    elevation: 8,
-    marginTop: 8,
+  fieldHint: {
+    fontSize: 12,
+    color: colors.ivory700,
+    lineHeight: 16,
   },
-  callButtonDisabled: {
-    backgroundColor: '#334155',
-    shadowOpacity: 0,
-  },
-  callButtonInner: {
+  inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
+    backgroundColor: colors.ink950,
+    borderRadius: radius.field,
+    borderWidth: 1,
+    borderColor: colors.ink500,
+    paddingHorizontal: 12,
   },
-  callButtonText: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: '700',
-    letterSpacing: 0.5,
+  textInput: {
+    flex: 1,
+    height: 44,
+    color: colors.ivory100,
+    fontSize: 14,
+    fontFamily: fonts.mono,
+  },
+  presetsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  presetChip: {
+    height: 32,
+    paddingHorizontal: 12,
+    borderRadius: radius.pill,
+    backgroundColor: colors.ink850,
+    borderWidth: 1,
+    borderColor: colors.ink500,
+    justifyContent: 'center',
+  },
+  presetChipActive: {
+    borderColor: colors.brass500,
+    backgroundColor: alpha.brass(0.15),
+  },
+  presetChipText: {
+    fontSize: 12,
+    color: colors.ivory500,
+  },
+  presetChipTextActive: {
+    color: colors.brass300,
+    fontWeight: '600',
   },
 });
