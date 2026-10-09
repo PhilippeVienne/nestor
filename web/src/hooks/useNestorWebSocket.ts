@@ -130,11 +130,13 @@ export function useNestorWebSocket({
   }, []);
 
   // Journal d'activite : les 100 derniers evenements, du plus recent au plus ancien.
-  const pushActivity = useCallback((kind: ActivityItem['kind'], text: string) => {
+  const pushActivity = useCallback((kind: ActivityItem['kind'], text: string, at?: Date) => {
     setActivity((prev) =>
-      [{ id: `act-${Date.now()}-${prev.length}`, kind, text, timestamp: new Date() }, ...prev].slice(0, 100)
+      [{ id: `act-${Date.now()}-${prev.length}`, kind, text, timestamp: at ?? new Date() }, ...prev].slice(0, 100)
     );
   }, []);
+  // Alertes deja vues : l'instantane de connexion rejoue les dernieres a chaque reconnexion.
+  const seenAlertsRef = useRef(new Set<string>());
 
   const sendEvent = useCallback((event: ClientEvent) => {
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
@@ -498,9 +500,15 @@ export function useNestorWebSocket({
               break;
             }
 
-            case 'alert':
-              pushActivity('alert', data.text);
+            case 'alert': {
+              // La cle inclut l'horodatage : un daemon redemarre repart de l'identifiant 1.
+              const key = `${data.id}:${data.at_ms}`;
+              if (!seenAlertsRef.current.has(key)) {
+                seenAlertsRef.current.add(key);
+                pushActivity('alert', data.text, new Date(data.at_ms));
+              }
               break;
+            }
 
             case 'mission': {
               const { id, backend, status: missionStatus, description, summary, progress } = data;
