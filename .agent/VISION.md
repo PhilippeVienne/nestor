@@ -474,10 +474,14 @@ Réalisée le 2026-10-09 sauf la relance de session, voir `docs/veille.md`.
 
 ### Étape F — Agenda
 
-- [ ] Brancher Google Calendar en lecture directe depuis nestord (OAuth,
+Réalisée le 2026-10-09 sauf le canal mobile hors appel, voir `docs/agenda.md`.
+À brancher : identifiants OAuth à créer dans la console Google Cloud, puis
+`nestord onboard --google`.
+
+- [x] Brancher Google Calendar en lecture directe depuis nestord (OAuth,
       jeton stocké localement) ; écriture par le connecteur de session.
-- [ ] Prochains événements et lieux dans le contexte et dans `get_context`.
-- [ ] Nouvelles règles de la boucle proactive : départ à temps (estimation
+- [x] Prochains événements et lieux dans le contexte et dans `get_context`.
+- [x] Nouvelles règles de la boucle proactive : départ à temps (estimation
       du trajet), rendez-vous imminent, mails importants.
 - [ ] Canal nestord → mobile hors appel (notification, appel entrant pour
       les urgences), pour choisir le bon canal d'alerte.

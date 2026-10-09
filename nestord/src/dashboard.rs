@@ -87,6 +87,9 @@ pub fn context_event(config: &Config, current_place: &Mutex<Option<String>>) -> 
         quiet_active: config.quiet_hours.contains(chrono::Local::now().time()),
         auth_required: config.auth.is_some() || crate::passkey::has_any(),
         presence: crate::power::snapshot(),
+        next_event: crate::calendar::next_event(),
+        calendar_connected: crate::calendar::configured(&config.google),
+        calendar_error: crate::calendar::last_error(),
     }
 }
 

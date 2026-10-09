@@ -15,6 +15,7 @@ n'est poussé au TTS.
 | `session_fallback` | session Claude toujours en mode réduit | tous les `fallback_remind_minutes` (30 min) ; la bascule elle-même est annoncée par `brain.rs` |
 | `quota` | pire fenêtre du quota Claude ≥ `quota_threshold` (90 %) | une alerte par tranche de 5 points ; oubliée une fois redescendu de 10 points |
 | `todo_due` | tâches dues (`todo.rs`), toutes les `todo_interval_minutes` (5 min) | mémoire du magasin (`mark_notified`) |
+| `departure`, `event_imminent` | rendez-vous de l'agenda (`docs/agenda.md`) | voir cette page |
 
 Chaque règle est réévaluée à chaque tour : une condition disparue ne produit
 plus rien, et une alerte en attente n'est jamais rejouée à retardement.
@@ -50,6 +51,10 @@ todo_interval_minutes = 5
 mission_stall_minutes = 10
 fallback_remind_minutes = 30
 quota_threshold = 0.9
+default_travel_minutes = 30     # trajet estimé vers un rendez-vous avec lieu
+departure_margin_minutes = 10
+event_reminder_minutes = 10     # visio ou rendez-vous sans lieu
+mail_check_minutes = 0          # point mails demandé à la session (0 : jamais)
 ```
 
 ## Suite prévue

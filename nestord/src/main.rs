@@ -17,6 +17,7 @@ mod onboard;
 mod passkey;
 mod protocol;
 mod settings;
+mod calendar;
 mod location;
 mod power;
 mod proactive;
@@ -68,6 +69,9 @@ fn write_mcp_config(mcp_secret: &str) -> anyhow::Result<PathBuf> {
 async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("onboard") {
+        if args.get(1).map(String::as_str) == Some("--google") {
+            return calendar::onboard(&config::Config::load()).await;
+        }
         return onboard::run(&args[1..]);
     }
 
@@ -152,6 +156,7 @@ Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) 
     connectors::init(&config.mcp_servers, config.auth.is_some() || passkey::has_any(), events_tx.clone());
     dashboard::spawn_ticker(events_tx.clone(), config.clone(), state.current_place.clone());
     power::spawn(events_tx.clone(), config.clone(), state.missions.clone(), state.current_place.clone());
+    calendar::spawn(events_tx.clone(), config.clone(), state.current_place.clone());
     proactive::spawn(
         events_tx.clone(),
         brain.clone(),
@@ -159,6 +164,7 @@ Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) 
         todos.clone(),
         state.missions.clone(),
         usage.clone(),
+        state.current_place.clone(),
     );
 
     // Les points d'acces de connexion par passkey sont appeles par la page de l'interface

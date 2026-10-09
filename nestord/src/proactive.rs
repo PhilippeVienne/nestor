@@ -80,6 +80,10 @@ pub struct Observation {
     pub fallback_reason: Option<String>,
     /// Pire remplissage des fenetres de quota Claude, de 0 a 1.
     pub worst_utilization: Option<f32>,
+    /// Lieu reconnu (`location.rs`), s'il y en a un.
+    pub place: Option<String>,
+    /// Rendez-vous a venir, a heure fixe (`calendar.rs`).
+    pub events: Vec<crate::calendar::Event>,
 }
 
 /// Memoire des alertes deja emises, pour ne pas repeter la meme.
@@ -189,10 +193,72 @@ pub fn evaluate(obs: &Observation, cfg: &ProactiveConfig, dedup: &mut Dedup) -> 
         _ => {}
     }
 
+    // Rendez-vous : partir a temps (lieu connu) ou rappel (visio). Les cles des
+    // rendez-vous passes sont oubliees.
+    dedup.emitted.retain(|key| match key.strip_prefix("event:") {
+        Some(rest) => rest.split(':').next().and_then(|start| start.parse::<u64>().ok()).is_some_and(|start| start > obs.now_ms),
+        None => true,
+    });
+    for event in obs.events.iter().filter(|e| !e.all_day && e.start_ms > obs.now_ms) {
+        let start = crate::calendar::format_time(event.start_ms);
+        let minutes_left = (event.start_ms - obs.now_ms) / 60_000;
+        if event.online || event.location.is_none() {
+            let reminder_ms = cfg.event_reminder_minutes.max(1) * 60_000;
+            if event.start_ms - obs.now_ms <= reminder_ms {
+                let key = format!("event:{}:reminder", event.start_ms);
+                if dedup.first_time(&key) {
+                    alerts.push(Alert {
+                        key,
+                        kind: "event_imminent",
+                        text: format!("« {} » commence a {start}, dans {minutes_left} minutes", event.title),
+                    });
+                }
+            }
+            continue;
+        }
+        let travel_ms = cfg.default_travel_minutes * 60_000;
+        let leave_at = event.start_ms.saturating_sub(travel_ms + cfg.departure_margin_minutes * 60_000);
+        if obs.now_ms < leave_at {
+            continue;
+        }
+        let location = event.location.as_deref().unwrap_or_default();
+        let key = format!("event:{}:leave", event.start_ms);
+        if dedup.first_time(&key) {
+            alerts.push(Alert {
+                key,
+                kind: "departure",
+                text: format!(
+                    "il est temps de partir pour « {} » a {location} (debut a {start}, trajet estime {} minutes)",
+                    event.title, cfg.default_travel_minutes
+                ),
+            });
+        } else if obs.now_ms >= leave_at + 5 * 60_000 && obs.place.is_some() {
+            // Cinq minutes plus tard, toujours dans un lieu connu : rappel ferme.
+            let key = format!("event:{}:still-here", event.start_ms);
+            if dedup.first_time(&key) {
+                alerts.push(Alert {
+                    key,
+                    kind: "departure",
+                    text: format!(
+                        "rappel ferme : toujours a {}, alors que « {} » commence a {start} a {location}",
+                        obs.place.as_deref().unwrap_or_default(),
+                        event.title
+                    ),
+                });
+            }
+        }
+    }
+
     alerts
 }
 
-fn observe(missions: &MissionManager, fallback_since_ms: Option<u64>, brain: &NestorBrain, usage: &UsageState) -> Observation {
+fn observe(
+    missions: &MissionManager,
+    fallback_since_ms: Option<u64>,
+    brain: &NestorBrain,
+    usage: &UsageState,
+    current_place: &Mutex<Option<String>>,
+) -> Observation {
     Observation {
         now_ms: now_ms(),
         running_missions: missions
@@ -204,6 +270,8 @@ fn observe(missions: &MissionManager, fallback_since_ms: Option<u64>, brain: &Ne
         fallback_since_ms,
         fallback_reason: brain.fallback_reason(),
         worst_utilization: usage.worst_utilization(),
+        place: current_place.lock().unwrap().clone(),
+        events: crate::calendar::upcoming(),
     }
 }
 
@@ -232,6 +300,7 @@ pub fn spawn(
     todos: Arc<TodoStore>,
     missions: Arc<MissionManager>,
     usage: Arc<UsageState>,
+    current_place: Arc<Mutex<Option<String>>>,
 ) {
     let cfg = config.proactive.clone();
     if !cfg.enabled {
@@ -245,6 +314,7 @@ pub fn spawn(
         let mut status = DaemonStatus::Idle;
         let mut fallback_since_ms: Option<u64> = None;
         let mut last_todo_check_ms: u64 = 0;
+        let mut last_mail_check_ms: u64 = now_ms();
         loop {
             tokio::select! {
                 event = events_rx.recv() => match event {
@@ -274,7 +344,22 @@ pub fn spawn(
                         continue;
                     }
 
-                    let mut alerts = evaluate(&observe(&missions, fallback_since_ms, &brain, &usage), &cfg, &mut dedup);
+                    // Point sur les mails : une consigne a la session (qui a Gmail par ses
+                    // connecteurs), jamais une lecture a voix haute. Desactive par defaut.
+                    if cfg.mail_check_minutes > 0 && now.saturating_sub(last_mail_check_ms) >= cfg.mail_check_minutes * 60_000 {
+                        last_mail_check_ms = now;
+                        let consigne = format!(
+                            "[Consigne interne : fais le point sur les mails non lus importants de {}. \
+Ne signale que ce qui merite attention, en une phrase ; s'il n'y a rien, ne dis rien.]",
+                            config.address_form
+                        );
+                        if let Err(err) = brain.send_internal_report(&consigne).await {
+                            tracing::error!(?err, "echec de la consigne de point mails");
+                        }
+                    }
+
+                    let mut alerts =
+                        evaluate(&observe(&missions, fallback_since_ms, &brain, &usage, &current_place), &cfg, &mut dedup);
 
                     // Taches a relancer : la memoire de dedoublonnage est celle du
                     // magasin (`mark_notified`), a une cadence plus lente.
@@ -397,6 +482,57 @@ mod tests {
         // Fenetre reinitialisee : nouvelle montee, nouvelle alerte.
         assert!(evaluate(&quota(0.10), &cfg(), &mut dedup).is_empty());
         assert_eq!(keys(&evaluate(&quota(0.90), &cfg(), &mut dedup)), ["quota:90"]);
+    }
+
+    fn rdv(title: &str, start_min: u64, location: Option<&str>, online: bool) -> crate::calendar::Event {
+        crate::calendar::Event {
+            title: title.to_string(),
+            start_ms: start_min * MIN,
+            end_ms: (start_min + 60) * MIN,
+            all_day: false,
+            location: location.map(str::to_string),
+            online,
+        }
+    }
+
+    #[test]
+    fn depart_a_temps_puis_rappel_ferme_si_toujours_la() {
+        let mut dedup = Dedup::default();
+        // Dentiste a T+1000 min, trajet 30 + marge 10 : partir a T+960.
+        let obs = |now_min: u64, place: Option<&str>| Observation {
+            now_ms: now_min * MIN,
+            place: place.map(str::to_string),
+            events: vec![rdv("Dentiste", 1000, Some("12 rue de la Paix"), false)],
+            ..Default::default()
+        };
+        assert!(evaluate(&obs(950, Some("domicile")), &cfg(), &mut dedup).is_empty(), "trop tot");
+        let leave = evaluate(&obs(961, Some("domicile")), &cfg(), &mut dedup);
+        assert_eq!(keys(&leave), ["event:60000000:leave"]);
+        assert!(leave[0].text.contains("Dentiste") && leave[0].text.contains("12 rue de la Paix"));
+        assert!(evaluate(&obs(963, Some("domicile")), &cfg(), &mut dedup).is_empty(), "pas encore cinq minutes");
+        assert!(evaluate(&obs(967, None), &cfg(), &mut dedup).is_empty(), "parti (lieu inconnu) : pas de rappel");
+        let firm = evaluate(&obs(968, Some("domicile")), &cfg(), &mut dedup);
+        assert_eq!(keys(&firm), ["event:60000000:still-here"]);
+        assert!(firm[0].text.contains("toujours a domicile"));
+        assert!(evaluate(&obs(990, Some("domicile")), &cfg(), &mut dedup).is_empty(), "une seule relance");
+        // Rendez-vous passe : memoire oubliee.
+        assert!(evaluate(&Observation { now_ms: 1100 * MIN, ..Default::default() }, &cfg(), &mut dedup).is_empty());
+        assert!(dedup.emitted.is_empty());
+    }
+
+    #[test]
+    fn visio_rappelee_dix_minutes_avant_une_seule_fois() {
+        let mut dedup = Dedup::default();
+        let obs = |now_min: u64| Observation {
+            now_ms: now_min * MIN,
+            events: vec![rdv("Point equipe", 500, None, true)],
+            ..Default::default()
+        };
+        assert!(evaluate(&obs(480), &cfg(), &mut dedup).is_empty());
+        let reminder = evaluate(&obs(491), &cfg(), &mut dedup);
+        assert_eq!(keys(&reminder), ["event:30000000:reminder"]);
+        assert!(reminder[0].text.contains("Point equipe") && reminder[0].text.contains("9 minutes"));
+        assert!(evaluate(&obs(495), &cfg(), &mut dedup).is_empty());
     }
 
     #[test]

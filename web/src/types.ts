@@ -31,6 +31,19 @@ export interface ContextInfo {
   /** Motif du verrou de veille en cours (cf. nestord/src/power.rs). */
   inhibit?: string;
   resumed_at_ms?: number;
+  /** Prochain rendez-vous a heure fixe (cf. nestord/src/calendar.rs). */
+  next_event?: CalendarEvent;
+  calendar_connected: boolean;
+  calendar_error?: string;
+}
+
+export interface CalendarEvent {
+  title: string;
+  start_ms: number;
+  end_ms: number;
+  all_day: boolean;
+  location?: string;
+  online: boolean;
 }
 
 /** Tache ou rappel (cf. nestord/src/todo.rs). */

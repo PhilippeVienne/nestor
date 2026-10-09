@@ -48,6 +48,15 @@ function formatIdle(secs: number): string {
   return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')}`;
 }
 
+/** Debut d'un rendez-vous : « 15:00 » aujourd'hui, sinon « jeu. 15:00 ». */
+function formatEventStart(startMs: number, now: Date): string {
+  const start = new Date(startMs);
+  const time = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return start.toDateString() === now.toDateString()
+    ? time
+    : `${start.toLocaleDateString([], { weekday: 'short' })} ${time}`;
+}
+
 export const SituationPanel: React.FC<{ context: ContextInfo | null }> = ({ context }) => {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -92,7 +101,21 @@ export const SituationPanel: React.FC<{ context: ContextInfo | null }> = ({ cont
           )}
         </Row>
         <Row label="Prochain rendez-vous">
-          <Unknown>agenda non branché</Unknown>
+          {!context?.calendar_connected ? (
+            <Unknown>agenda non branché</Unknown>
+          ) : context.calendar_error ? (
+            <span className="text-rose-300">lecture impossible · {context.calendar_error}</span>
+          ) : context.next_event ? (
+            <>
+              <span className="text-slate-100">{context.next_event.title}</span>
+              <span className="text-slate-400"> · {formatEventStart(context.next_event.start_ms, now)}</span>
+              {context.next_event.location && !context.next_event.online && (
+                <span className="block text-[12px] text-slate-400 truncate">{context.next_event.location}</span>
+              )}
+            </>
+          ) : (
+            <span className="text-slate-400">rien dans les prochaines heures</span>
+          )}
         </Row>
         <Row label="Mails">
           <Unknown>non branchés</Unknown>

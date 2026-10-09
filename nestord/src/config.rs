@@ -40,6 +40,8 @@ pub struct Config {
     pub proactive: ProactiveConfig,
     /// Presence devant l'ordinateur et inhibition de la veille (cf. `power.rs`).
     pub power: PowerConfig,
+    /// Agenda Google en lecture directe (cf. `calendar.rs`).
+    pub google: GoogleConfig,
     /// Jeton partage exige pour se connecter a `/ws` (query `?token=...`).
     /// `NESTORD_AUTH_TOKEN` a priorite. Absent (defaut) : pas de verification,
     /// tolerable tant que nestord n'ecoute que sur `127.0.0.1` - a definir
@@ -76,12 +78,33 @@ impl Default for Config {
             judge: JudgeConfig::default(),
             proactive: ProactiveConfig::default(),
             power: PowerConfig::default(),
+            google: GoogleConfig::default(),
             auth_token: None,
             auth_token_sha256: None,
             allowed_origins: Vec::new(),
             ui_url: "http://localhost:5173".to_string(),
             auth: None,
         }
+    }
+}
+
+/// Agenda Google (`calendar.rs`). Les identifiants viennent d'un client OAuth
+/// « application de bureau » ; `NESTORD_GOOGLE_CLIENT_ID` / `_SECRET` ont priorite.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct GoogleConfig {
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
+    /// Agendas lus (`primary`, ou une adresse d'agenda partage).
+    pub calendar_ids: Vec<String>,
+    pub poll_minutes: u64,
+    /// Fenetre de lecture, en heures.
+    pub horizon_hours: u64,
+}
+
+impl Default for GoogleConfig {
+    fn default() -> Self {
+        Self { client_id: None, client_secret: None, calendar_ids: vec!["primary".to_string()], poll_minutes: 5, horizon_hours: 36 }
     }
 }
 
@@ -116,6 +139,14 @@ pub struct ProactiveConfig {
     pub fallback_remind_minutes: u64,
     /// Remplissage du quota Claude (0 a 1) a partir duquel on previent, par tranche de 5 points.
     pub quota_threshold: f32,
+    /// Trajet estime vers un rendez-vous avec lieu, faute d'itineraire calcule.
+    pub default_travel_minutes: u64,
+    /// Marge ajoutee au trajet avant de dire « il est temps de partir ».
+    pub departure_margin_minutes: u64,
+    /// Rappel avant un rendez-vous sans lieu (visio).
+    pub event_reminder_minutes: u64,
+    /// Point sur les mails importants demande a la session, toutes les N minutes (0 : jamais).
+    pub mail_check_minutes: u64,
 }
 
 impl Default for ProactiveConfig {
@@ -127,6 +158,10 @@ impl Default for ProactiveConfig {
             mission_stall_minutes: 10,
             fallback_remind_minutes: 30,
             quota_threshold: 0.9,
+            default_travel_minutes: 30,
+            departure_margin_minutes: 10,
+            event_reminder_minutes: 10,
+            mail_check_minutes: 0,
         }
     }
 }

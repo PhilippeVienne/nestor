@@ -310,9 +310,34 @@ il confirme."
             let quiet_desc = if is_quiet { "en heures calmes" } else { "hors heures calmes" };
             let (pending, overdue) = state.todos.summary_counts().unwrap_or((0, 0));
 
+            let agenda = if !crate::calendar::configured(&state.config.google) {
+                "Agenda non branche.".to_string()
+            } else {
+                let upcoming: Vec<String> = crate::calendar::upcoming()
+                    .into_iter()
+                    .filter(|e| !e.all_day)
+                    .take(3)
+                    .map(|e| {
+                        let when = chrono::Local
+                            .timestamp_millis_opt(e.start_ms as i64)
+                            .single()
+                            .map(|dt| dt.format("%d/%m %H:%M").to_string())
+                            .unwrap_or_default();
+                        match (&e.location, e.online) {
+                            (Some(location), false) => format!("{} le {when} a {location}", e.title),
+                            _ => format!("{} le {when} (en ligne ou sans lieu)", e.title),
+                        }
+                    })
+                    .collect();
+                if upcoming.is_empty() {
+                    "Aucun rendez-vous a heure fixe dans les prochaines heures.".to_string()
+                } else {
+                    format!("Prochains rendez-vous : {}.", upcoming.join(" ; "))
+                }
+            };
             Ok(text_result(format!(
                 "Lieu : {place_desc}. {quiet_desc} ({}-{}). Heure locale : {}. \
-Taches en attente : {pending} (dont {overdue} en retard).",
+Taches en attente : {pending} (dont {overdue} en retard). {agenda}",
                 state.config.quiet_hours.start,
                 state.config.quiet_hours.end,
                 now.format("%H:%M")

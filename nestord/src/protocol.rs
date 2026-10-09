@@ -66,6 +66,14 @@ pub enum ServerEvent {
         /// Presence devant l'ordinateur et verrou de veille (`power.rs`), aplatis.
         #[serde(flatten)]
         presence: crate::power::PresenceInfo,
+        /// Prochain rendez-vous a heure fixe (`calendar.rs`), si l'agenda est branche.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        next_event: Option<crate::calendar::Event>,
+        /// Agenda branche (jeton present), meme sans rendez-vous a venir.
+        calendar_connected: bool,
+        /// Derniere erreur de lecture de l'agenda, pour le diagnostic.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        calendar_error: Option<String>,
     },
     /// Taches et rappels en attente, rediffuses a chaque changement.
     Todos {

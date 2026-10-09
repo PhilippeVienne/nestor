@@ -64,7 +64,7 @@ pub fn run(args: &[String]) -> Result<()> {
             "--passkey" => passkey = true,
             "--ui" => ui_url = iter.next().cloned(),
             "--url" => base_url = iter.next().cloned(),
-            other => anyhow::bail!("option inconnue : {other} (attendu : --passkey, --ui <url>, --rotate, --url <url>)"),
+            other => anyhow::bail!("option inconnue : {other} (attendu : --passkey, --ui <url>, --rotate, --url <url>, --google)"),
         }
     }
 
