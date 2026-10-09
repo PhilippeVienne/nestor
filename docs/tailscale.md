@@ -24,6 +24,10 @@ présentation sans lien avec la machine.
 - **Seuls `/ws`, `/auth` et `/location` atteignent l'API.** `/mcp` (outils de
   l'assistant) et `/wake` (réveil) ne sont pas routés. `/ws` et `/auth`
   vérifient en plus l'en-tête `Origin` contre `allowed_origins`.
+- Traefik ajoute HSTS, `X-Frame-Options: DENY`, `nosniff`, et limite l'API à
+  5 requêtes par seconde et par adresse Tailscale (rafale de 20) : large pour
+  l'usage, bloquant pour une énumération de jetons. Son journal d'accès est
+  désactivé, l'URL de `/ws` portant le jeton de session.
 - Les preuves d'accès restent celles de `docs/passkey.md` : passkey liée au
   domaine `nestor.vienne.me`, ou jeton de `nestord onboard` pour le téléphone.
 
@@ -81,7 +85,11 @@ systemctl --user enable --now nestor-edge-cert.timer   # unites copiees dans ~/.
 Enfin une passkey pour le nouveau domaine, depuis un navigateur du tailnet :
 `nestord onboard --passkey` (l'adresse proposée est déjà `https://nestor.vienne.me`),
 lien à ouvrir dans les dix minutes. Sur le téléphone : Tailscale actif, adresse
-`wss://nestor.vienne.me/ws` et jeton de `nestord onboard`.
+`wss://nestor.vienne.me/ws` (raccourci « Tailscale ») et jeton de `nestord onboard`.
+L'application sonde `/auth/status` et dit sous le bouton d'appel par où elle
+passe : « joignable », « hors du tailnet : activez Tailscale » (c'est la page
+publique qui a répondu), ou « injoignable » ; l'appel et la veille affichent le
+même diagnostic quand la connexion échoue.
 
 ## Vérifications
 
