@@ -11,16 +11,26 @@ function levelPercent(rms: number): number {
   return Math.max(0, Math.min(100, Math.sqrt(rms / 0.2) * 100));
 }
 
-const Chip: React.FC<{ active: boolean; children: React.ReactNode }> = ({ active, children }) => (
-  <span
-    className={`px-2 py-0.5 rounded-md text-[10px] sm:text-[11px] font-mono border whitespace-nowrap ${
-      active
-        ? 'bg-cyan-950/60 border-cyan-500/30 text-cyan-300'
-        : 'bg-slate-900/60 border-slate-700/60 text-slate-400'
-    }`}
-  >
-    {children}
-  </span>
+const Meter: React.FC<{ label: string; value: string; percent: number; mark: number; markTitle: string; ariaMax: number; ariaNow: number; hot: boolean }> = ({
+  label,
+  value,
+  percent,
+  mark,
+  markTitle,
+  ariaMax,
+  ariaNow,
+  hot,
+}) => (
+  <div className="flex-1 min-w-[150px] flex flex-col gap-1">
+    <div className="flex justify-between text-[12px] text-ivory-500">
+      <span>{label}</span>
+      <span className={`font-mono tabular-nums ${hot ? 'text-listen-300' : 'text-ivory-300'}`}>{value}</span>
+    </div>
+    <div className="relative h-1.5 rounded-full bg-ink-700" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={ariaMax} aria-valuenow={ariaNow}>
+      <div className="h-1.5 rounded-full bg-listen-400 transition-[width] duration-100" style={{ width: `${percent}%` }} />
+      <div className="absolute -top-1 w-0.5 h-3.5 bg-brass-400" style={{ left: `${mark}%` }} title={markTitle} />
+    </div>
+  </div>
 );
 
 /**
@@ -31,55 +41,38 @@ export const VoiceHud: React.FC<VoiceHudProps> = ({ meter, settings }) => {
   const threshold = settings?.barge_threshold ?? 0.75;
   const minRms = settings?.barge_min_rms ?? 0.012;
   const speechDetected = meter.vad >= threshold;
+  const chips = [
+    settings?.voice_barge_in ? 'interruption à la voix' : 'interruption coupée',
+    settings?.aec ? 'écho annulé' : 'sans annulation d’écho',
+    settings?.smart_turn ? 'fin de tour par modèle' : 'fin de tour sur silence',
+  ];
 
   return (
-    <div className="shrink-0 px-3 sm:px-6 py-2 border-y border-slate-800/60 bg-slate-950/60 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
-      <div className="flex-1 min-w-[150px] flex flex-col gap-1">
-        <div className="flex justify-between text-slate-400">
-          <span>Niveau micro</span>
-          <span className="font-mono text-slate-300">{meter.rms.toFixed(3)}</span>
-        </div>
-        <div
-          className="relative h-1.5 rounded-full bg-slate-800"
-          role="meter"
-          aria-label="Niveau du micro"
-          aria-valuemin={0}
-          aria-valuemax={0.2}
-          aria-valuenow={Number(meter.rms.toFixed(3))}
-        >
-          <div className="h-1.5 rounded-full bg-cyan-400 transition-[width] duration-100" style={{ width: `${levelPercent(meter.rms)}%` }} />
-          <div className="absolute -top-1 w-0.5 h-3.5 bg-amber-400" style={{ left: `${levelPercent(minRms)}%` }} title="Énergie minimale d'une interruption" />
-        </div>
-      </div>
-
-      <div className="flex-1 min-w-[150px] flex flex-col gap-1">
-        <div className="flex justify-between text-slate-400">
-          <span>Parole détectée</span>
-          <span className={`font-mono ${speechDetected ? 'text-cyan-300' : 'text-slate-300'}`}>
-            {meter.vad.toFixed(2)} / seuil {threshold.toFixed(2)}
-          </span>
-        </div>
-        <div
-          className="relative h-1.5 rounded-full bg-slate-800"
-          role="meter"
-          aria-label="Probabilité de parole"
-          aria-valuemin={0}
-          aria-valuemax={1}
-          aria-valuenow={Number(meter.vad.toFixed(2))}
-        >
-          <div className="h-1.5 rounded-full bg-cyan-400 transition-[width] duration-100" style={{ width: `${meter.vad * 100}%` }} />
-          <div className="absolute -top-1 w-0.5 h-3.5 bg-amber-400" style={{ left: `${threshold * 100}%` }} title="Seuil d'interruption" />
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Chip active={!!settings?.voice_barge_in}>Interruption vocale {settings?.voice_barge_in ? 'active' : 'coupée'}</Chip>
-        <Chip active={!!settings?.aec}>Annulation d'écho {settings?.aec ? 'active' : 'coupée'}</Chip>
-        <Chip active={!!settings?.smart_turn}>Fin de tour : {settings?.smart_turn ? 'modèle' : 'silence fixe'}</Chip>
-        {meter.lastInterruptRms !== undefined && (
-          <Chip active={false}>Dernière interruption : {meter.lastInterruptRms.toFixed(3)}</Chip>
-        )}
-      </div>
+    <div className="shrink-0 px-4 sm:px-6 py-2 border-y border-ink-800 bg-ink-900/40 flex flex-wrap items-center gap-x-6 gap-y-2">
+      <Meter
+        label="Micro"
+        value={meter.rms.toFixed(3)}
+        percent={levelPercent(meter.rms)}
+        mark={levelPercent(minRms)}
+        markTitle="Énergie minimale d'une interruption"
+        ariaMax={0.2}
+        ariaNow={Number(meter.rms.toFixed(3))}
+        hot={false}
+      />
+      <Meter
+        label="Parole"
+        value={`${meter.vad.toFixed(2)} / ${threshold.toFixed(2)}`}
+        percent={meter.vad * 100}
+        mark={threshold * 100}
+        markTitle="Seuil d'interruption"
+        ariaMax={1}
+        ariaNow={Number(meter.vad.toFixed(2))}
+        hot={speechDetected}
+      />
+      <p className="m-0 text-[12px] text-ivory-700">
+        {chips.join(' · ')}
+        {meter.lastInterruptRms !== undefined ? ` · dernière interruption ${meter.lastInterruptRms.toFixed(3)}` : ''}
+      </p>
     </div>
   );
 };

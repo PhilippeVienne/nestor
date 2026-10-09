@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wifi, WifiOff, Cpu, RefreshCw, Volume2, Mic, Terminal, Zap, Sparkles, SlidersHorizontal, LayoutDashboard } from 'lucide-react';
+import { Mic, Cpu, Volume2, Terminal, SlidersHorizontal, LayoutDashboard } from 'lucide-react';
 import type { DaemonStatus, ConnectionState, BackendStatusInfo } from '../types';
 
 interface HeaderProps {
@@ -18,6 +18,13 @@ interface HeaderProps {
   onOpenDashboard?: () => void;
 }
 
+const STATUS: Record<DaemonStatus, { label: string; hint: string; tone: string; dot: string; Icon: typeof Mic }> = {
+  listening: { label: 'Écoute', hint: 'Nestor vous écoute', tone: 'text-listen-300 border-listen-600/50', dot: 'bg-listen-400', Icon: Mic },
+  thinking: { label: 'Réflexion', hint: 'Nestor réfléchit', tone: 'text-think-300 border-think-600/50', dot: 'bg-think-400', Icon: Cpu },
+  speaking: { label: 'Parole', hint: 'Nestor vous répond', tone: 'text-brass-300 border-brass-500/50', dot: 'bg-brass-400', Icon: Volume2 },
+  idle: { label: 'Veille', hint: 'Dites « Hey Nestor » pour lui parler', tone: 'text-ivory-500 border-ink-700', dot: 'bg-ivory-500', Icon: Mic },
+};
+
 export const Header: React.FC<HeaderProps> = ({
   status,
   connectionState,
@@ -32,185 +39,80 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSettings,
   onOpenDashboard,
 }) => {
-  const getStatusBadge = () => {
-    switch (status) {
-      case 'listening':
-        return (
-          <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1 rounded-full bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 text-[11px] sm:text-xs font-mono shadow-[0_0_12px_rgba(6,182,212,0.25)]">
-            <Mic className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-pulse text-cyan-400" />
-            <span className="font-semibold tracking-wider hidden sm:inline">ÉCOUTE</span>
-          </div>
-        );
-      case 'thinking':
-        return (
-          <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1 rounded-full bg-purple-950/80 text-purple-300 border border-purple-500/40 text-[11px] sm:text-xs font-mono shadow-[0_0_12px_rgba(168,85,247,0.25)]">
-            <Cpu className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin text-purple-400" />
-            <span className="font-semibold tracking-wider hidden sm:inline">RÉFLEXION</span>
-          </div>
-        );
-      case 'speaking':
-        return (
-          <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1 rounded-full bg-amber-950/80 text-amber-300 border border-amber-500/40 text-[11px] sm:text-xs font-mono shadow-[0_0_12px_rgba(245,158,11,0.25)]">
-            <Volume2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-bounce text-amber-400" />
-            <span className="font-semibold tracking-wider hidden sm:inline">PAROLE</span>
-          </div>
-        );
-      case 'idle':
-      default:
-        return (
-          <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1 rounded-full bg-slate-900/80 text-slate-400 border border-slate-700/60 text-[11px] sm:text-xs font-mono" title="Dites 'Hey Nestor' pour lui parler">
-            <span className="w-2 h-2 rounded-full bg-cyan-400/40" />
-            <span className="font-semibold tracking-wider hidden sm:inline">VEILLE ("Hey Nestor")</span>
-            <span className="font-semibold tracking-wider sm:hidden">VEILLE</span>
-          </div>
-        );
-    }
-  };
-
-  const getConnectionBadge = () => {
-    switch (connectionState) {
-      case 'connected':
-        return (
-          <span className="flex items-center gap-1.5 text-[11px] sm:text-xs font-mono px-2 sm:px-2.5 py-1 rounded-full bg-emerald-950/60 border border-emerald-500/40 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.15)]" title="Connecté au daemon nestord (port 8340)">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <Wifi className="w-3 h-3 text-emerald-400" />
-            <span className="hidden lg:inline text-[11px]">nestord</span>
-          </span>
-        );
-      case 'connecting':
-        return (
-          <span className="flex items-center gap-1 text-[11px] font-mono p-1.5 sm:px-2 sm:py-1 rounded-full bg-amber-950/60 border border-amber-500/40 text-amber-400 animate-pulse" title="Connexion...">
-            <RefreshCw className="w-3 h-3 animate-spin" />
-            <span className="hidden lg:inline text-[11px]">Connexion...</span>
-          </span>
-        );
-      case 'disconnected':
-      case 'error':
-      default:
-        return (
-          <span className="flex items-center gap-1 text-[11px] font-mono p-1.5 sm:px-2 sm:py-1 rounded-full bg-rose-950/60 border border-rose-500/40 text-rose-400" title="Déconnecté de nestord">
-            <WifiOff className="w-3 h-3" />
-            <span className="hidden lg:inline text-[11px]">Déconnecté</span>
-          </span>
-        );
-    }
-  };
-
-  const getBackendBadge = () => {
-    if (!backendStatus) return null;
-    const isAgy = backendStatus.active_backend === 'agy' || backendStatus.is_fallback;
-    return (
-      <div className="relative group">
-        <button
-          onClick={() => {
-            if (onSetBackend) {
-              onSetBackend(isAgy ? 'claude' : 'agy');
-            }
-          }}
-          className={`flex items-center gap-1.5 px-2 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-mono transition-all border cursor-pointer ${
-            isAgy
-              ? 'bg-amber-950/80 text-amber-300 border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.25)] hover:bg-amber-900/90'
-              : 'bg-indigo-950/70 text-indigo-300 border-indigo-500/40 hover:bg-indigo-900/80'
-          }`}
-          title={
-            isAgy
-              ? `Mode Réduit (AGY) actif.${backendStatus.reason ? ` Cause: ${backendStatus.reason}.` : ''} Cliquer pour tenter de rebasculer sur Claude.`
-              : 'Backend standard Claude Code actif. Cliquer pour forcer le Mode Réduit (AGY).'
-          }
-        >
-          {isAgy ? (
-            <>
-              <Zap className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400 animate-pulse" />
-              <span className="font-semibold tracking-wider hidden md:inline">⚡ MODE RÉDUIT (AGY)</span>
-              <span className="font-semibold tracking-wider md:hidden text-[10px]">AGY</span>
-            </>
-          ) : (
-            <>
-              <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-indigo-400" />
-              <span className="font-semibold tracking-wider hidden md:inline">CLAUDE CODE</span>
-              <span className="font-semibold tracking-wider md:hidden text-[10px]">CLAUDE</span>
-            </>
-          )}
-        </button>
-      </div>
-    );
-  };
+  const state = STATUS[status] ?? STATUS.idle;
+  const isAgy = !!backendStatus && (backendStatus.active_backend === 'agy' || backendStatus.is_fallback);
+  const connected = connectionState === 'connected';
 
   return (
-    <header className="w-full flex flex-wrap items-center justify-between gap-x-2 gap-y-2 px-3 sm:px-6 py-2.5 sm:py-3 border-b border-slate-800/60 bg-slate-950/80 backdrop-blur-xl shrink-0 z-20">
-      {/* Brand & Assistant Name */}
-      <div className="flex items-center gap-2.5 sm:gap-3">
-        <div className="w-8 h-8 rounded-xl overflow-hidden border border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.3)] shrink-0 bg-[#030c28]">
-          <img src="/nestor-logo.png" alt="Nestor Logo" className="w-full h-full object-cover" />
+    <header className="w-full flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 sm:px-6 py-3 border-b border-ink-800 bg-ink-950/90 backdrop-blur shrink-0 z-20">
+      {/* Nom et devise */}
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-9 h-9 rounded-full overflow-hidden border border-brass-500/50 shrink-0 bg-ink-900">
+          <img src="/nestor-logo.png" alt="" className="w-full h-full object-cover" />
         </div>
-        <div>
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            <h1 className="text-sm font-semibold tracking-wider text-slate-100 font-mono m-0">
-              NESTOR
-            </h1>
-            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-400 border border-slate-700/60 hidden sm:inline">
-              v0.1
-            </span>
-          </div>
-          <p className="text-[10px] text-slate-400 font-sans hidden sm:block">
-            Majordome IA & Observabilité Claude Code
-          </p>
+        <div className="min-w-0">
+          <h1 className="font-display text-[22px] leading-none text-ivory-50 m-0">Nestor</h1>
+          <p className="text-[12px] text-ivory-500 m-0 hidden sm:block">À votre service, discrètement.</p>
         </div>
       </div>
 
-      {/* Middle Status Pill + Backend Pill */}
+      {/* Etat de parole et moteur */}
       <div className="flex items-center gap-2">
-        {getStatusBadge()}
-        {getBackendBadge()}
-      </div>
-
-      {/* Right controls: Connection + Console Drawer Toggle */}
-      <div className="flex items-center gap-2">
-        {getConnectionBadge()}
-
-        {/* Toggle Tool & Missions Console (Desktop & Mobile) */}
-        {onOpenDashboard && (
+        <span className={`pill ${state.tone}`} title={state.hint}>
+          <span className={`w-2 h-2 rounded-full ${state.dot} ${status === 'idle' ? '' : 'nestor-breathe'}`} />
+          {state.label}
+        </span>
+        {backendStatus && (
           <button
             type="button"
-            onClick={onOpenDashboard}
-            title="Tableau de bord"
-            aria-label="Tableau de bord"
-            className="xl:hidden flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg border border-slate-700/80 bg-slate-900/60 text-slate-300 hover:text-white hover:border-slate-500 text-[11px] sm:text-xs font-mono transition-colors"
+            onClick={() => onSetBackend?.(isAgy ? 'claude' : 'agy')}
+            className={`pill cursor-pointer transition-colors ${
+              isAgy ? 'text-alert-300 border-alert-600/60 hover:border-alert-400' : 'text-ivory-300 hover:border-ink-600'
+            }`}
+            title={
+              isAgy
+                ? `Mode réduit sur AGY.${backendStatus.reason ? ` Cause : ${backendStatus.reason}.` : ''} Cliquer pour revenir sur Claude.`
+                : 'Claude Code. Cliquer pour passer en mode réduit (AGY).'
+            }
           >
-            <LayoutDashboard className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Tableau</span>
+            {isAgy ? 'Mode réduit' : 'Claude'}
+          </button>
+        )}
+      </div>
+
+      {/* Connexion et acces aux volets */}
+      <div className="flex items-center gap-2">
+        <span
+          className={`pill ${connected ? 'text-ok-300 border-ok-600/50' : connectionState === 'connecting' ? 'text-alert-300 border-alert-600/50' : 'text-danger-300 border-danger-600/50'}`}
+          title={connected ? 'Connecté au daemon nestord' : connectionState === 'connecting' ? 'Connexion au daemon…' : 'Daemon injoignable'}
+        >
+          <span className={`w-2 h-2 rounded-full ${connected ? 'bg-ok-400' : connectionState === 'connecting' ? 'bg-alert-400 nestor-breathe' : 'bg-danger-400'}`} />
+          <span className="hidden lg:inline">{connected ? 'daemon' : connectionState === 'connecting' ? 'connexion' : 'hors ligne'}</span>
+        </span>
+        {onOpenDashboard && (
+          <button type="button" onClick={onOpenDashboard} title="Tableau de bord" aria-label="Tableau de bord" className="btn btn-icon sm:w-auto sm:px-3 xl:hidden">
+            <LayoutDashboard className="w-4 h-4" />
+            <span className="hidden sm:inline text-[13px]">Tableau</span>
           </button>
         )}
         {onOpenSettings && (
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            title="Réglages"
-            className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg border border-slate-700/80 bg-slate-900/60 text-slate-300 hover:text-white hover:border-slate-500 text-[11px] sm:text-xs font-mono transition-colors"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Réglages</span>
+          <button type="button" onClick={onOpenSettings} title="Réglages" aria-label="Réglages" className="btn btn-icon sm:w-auto sm:px-3">
+            <SlidersHorizontal className="w-4 h-4" />
+            <span className="hidden sm:inline text-[13px]">Réglages</span>
           </button>
         )}
         {onToggleConsole && (
           <button
+            type="button"
             onClick={onToggleConsole}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-mono transition-all ${
-              isConsoleOpen
-                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-[0_0_10px_rgba(6,182,212,0.15)]'
-                : 'bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border-slate-800'
-            }`}
-            title={isConsoleOpen ? "Masquer la console d'outils" : "Afficher la console d'outils et missions"}
+            aria-label="Console des outils"
+            className={`btn btn-icon sm:w-auto sm:px-3 relative ${isConsoleOpen ? 'border-brass-500 text-brass-300' : ''}`}
+            title={isConsoleOpen ? 'Masquer la console des outils' : 'Afficher la console des outils'}
           >
-            <div className="relative flex items-center">
-              <Terminal className="w-3.5 h-3.5" />
-              {runningToolsCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-400 rounded-full animate-ping" />
-              )}
-            </div>
-            <span className="hidden sm:inline text-[11px]">Outils</span>
+            <Terminal className="w-4 h-4" />
+            <span className="hidden sm:inline text-[13px]">Console</span>
             {runningToolsCount > 0 && (
-              <span className="text-[10px] px-1 rounded bg-amber-500/30 text-amber-300 font-bold">
+              <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full bg-alert-400 text-ink-950 text-[11px] font-semibold flex items-center justify-center">
                 {runningToolsCount}
               </span>
             )}
@@ -220,4 +122,3 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
-

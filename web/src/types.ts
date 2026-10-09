@@ -41,6 +41,8 @@ export interface ContextInfo {
   sleep_blockers: string[];
   wake_at_ms?: number;
   wake_armed: boolean;
+  /** Faits valides en memoire longue (cf. nestord/src/memory.rs). */
+  memory_facts?: number;
 }
 
 export interface CalendarEvent {

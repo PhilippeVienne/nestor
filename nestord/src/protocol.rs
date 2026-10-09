@@ -77,6 +77,9 @@ pub enum ServerEvent {
         /// Veille nocturne et reveil programme (`sleep.rs`), aplatis.
         #[serde(flatten)]
         sleep: crate::sleep::SleepInfo,
+        /// Faits valides en memoire longue (`memory.rs`), pour le tableau de bord.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        memory_facts: Option<i64>,
     },
     /// Taches et rappels en attente, rediffuses a chaque changement.
     Todos {

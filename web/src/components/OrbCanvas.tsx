@@ -96,10 +96,10 @@ export const OrbCanvas: React.FC<OrbCanvasProps> = ({ status, audioLevels, class
       basePositions[i * 3 + 1] = y;
       basePositions[i * 3 + 2] = z;
 
-      // Initial color cyan/blue
-      colors[i * 3] = 0.05;
-      colors[i * 3 + 1] = 0.7;
-      colors[i * 3 + 2] = 0.95;
+      // Couleur initiale : laiton eteint
+      colors[i * 3] = 0.55;
+      colors[i * 3 + 1] = 0.45;
+      colors[i * 3 + 2] = 0.3;
 
       scales[i] = Math.random() * 0.8 + 0.4;
       speeds[i] = Math.random() * 1.5 + 0.5;
@@ -134,9 +134,9 @@ export const OrbCanvas: React.FC<OrbCanvasProps> = ({ status, audioLevels, class
       ringPositions[i * 3 + 1] = (Math.random() - 0.5) * 0.35;
       ringPositions[i * 3 + 2] = Math.sin(angle) * ringR;
 
-      ringColors[i * 3] = 0.1;
-      ringColors[i * 3 + 1] = 0.5;
-      ringColors[i * 3 + 2] = 0.8;
+      ringColors[i * 3] = 0.5;
+      ringColors[i * 3 + 1] = 0.42;
+      ringColors[i * 3 + 2] = 0.3;
     }
 
     ringGeometry.setAttribute('position', new THREE.BufferAttribute(ringPositions, 3));
@@ -160,7 +160,7 @@ export const OrbCanvas: React.FC<OrbCanvasProps> = ({ status, audioLevels, class
     // 3. Inner Glowing Core
     const coreGeometry = new THREE.SphereGeometry(0.7, 32, 32);
     const coreMaterial = new THREE.MeshBasicMaterial({
-      color: 0x00d2ff,
+      color: 0xcfa552,
       transparent: true,
       opacity: 0.2,
       wireframe: true,
@@ -185,13 +185,16 @@ export const OrbCanvas: React.FC<OrbCanvasProps> = ({ status, audioLevels, class
     window.addEventListener('mousemove', handleMouseMove);
 
     // Color interpolation state
-    const currentColor = { r: 0.05, g: 0.7, b: 0.95 };
-    const targetColor = { r: 0.05, g: 0.7, b: 0.95 };
-    const altColor = { r: 0.0, g: 0.4, b: 0.8 };
+    const currentColor = { r: 0.55, g: 0.45, b: 0.3 };
+    const targetColor = { r: 0.55, g: 0.45, b: 0.3 };
+    const altColor = { r: 0.3, g: 0.25, b: 0.18 };
 
     // Audio smoothed values
     let smoothedRms = 0;
     let smoothedPeak = 0;
+
+    // Mouvement reduit : l'orbe reste un objet immobile qui change de couleur.
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // Animation loop
     let lastTime = performance.now();
@@ -239,72 +242,77 @@ export const OrbCanvas: React.FC<OrbCanvasProps> = ({ status, audioLevels, class
       switch (curStatus) {
         case 'listening':
           // Cyan / Blue pulsing reactive to user voice
-          targetColor.r = 0.0;
-          targetColor.g = 0.85;
-          targetColor.b = 1.0;
-          altColor.r = 0.1;
-          altColor.g = 0.4;
-          altColor.b = 0.9;
+          targetColor.r = 0.37;
+          targetColor.g = 0.78;
+          targetColor.b = 0.73;
+          altColor.r = 0.17;
+          altColor.g = 0.55;
+          altColor.b = 0.51;
           rotationSpeed = 0.5 + effectiveRms * 1.5;
           waveFrequency = 3.5;
           waveAmplitude = 0.18 + effectiveRms * 0.65;
           material.size = 0.08 + effectivePeak * 0.05;
           material.opacity = 0.95;
-          coreMaterial.color.setHex(0x00e5ff);
+          coreMaterial.color.setHex(0x5fc7bb);
           coreMaterial.opacity = 0.25 + effectiveRms * 0.4;
           break;
 
         case 'thinking':
           // Violet / Ambre rapid spinning swirl
-          targetColor.r = 0.65;
-          targetColor.g = 0.3;
-          targetColor.b = 1.0;
-          altColor.r = 0.95;
-          altColor.g = 0.6;
-          altColor.b = 0.1;
+          targetColor.r = 0.63;
+          targetColor.g = 0.56;
+          targetColor.b = 0.9;
+          altColor.r = 0.42;
+          altColor.g = 0.36;
+          altColor.b = 0.72;
           rotationSpeed = 2.4; // rapid rotation
           waveFrequency = 5.0;
           waveAmplitude = 0.25 + Math.sin(time * 6) * 0.1;
           material.size = 0.085;
           material.opacity = 0.92;
-          coreMaterial.color.setHex(0xa855f7);
+          coreMaterial.color.setHex(0xa08fe4);
           coreMaterial.opacity = 0.35;
           break;
 
         case 'speaking':
           // Warm gold / radiant amber / pure white bursts with Kokoro voice audio
-          targetColor.r = 1.0;
-          targetColor.g = 0.78;
-          targetColor.b = 0.2;
-          altColor.r = 1.0;
-          altColor.g = 0.95;
-          altColor.b = 0.85;
+          targetColor.r = 0.89;
+          targetColor.g = 0.76;
+          targetColor.b = 0.48;
+          altColor.r = 0.98;
+          altColor.g = 0.93;
+          altColor.b = 0.82;
           rotationSpeed = 0.8 + effectiveRms * 1.2;
           waveFrequency = 4.0;
           waveAmplitude = 0.2 + effectiveRms * 0.85;
           material.size = 0.085 + effectivePeak * 0.07;
           material.opacity = 0.95;
-          coreMaterial.color.setHex(0xfbbf24);
+          coreMaterial.color.setHex(0xcfa552);
           coreMaterial.opacity = 0.3 + effectiveRms * 0.5;
           break;
 
         case 'idle':
         default:
           // Attenuated slow pulsing blue/cyan
-          targetColor.r = 0.12;
-          targetColor.g = 0.55;
-          targetColor.b = 0.85;
-          altColor.r = 0.05;
-          altColor.g = 0.25;
-          altColor.b = 0.6;
+          targetColor.r = 0.5;
+          targetColor.g = 0.44;
+          targetColor.b = 0.34;
+          altColor.r = 0.3;
+          altColor.g = 0.26;
+          altColor.b = 0.2;
           rotationSpeed = 0.25;
           waveFrequency = 1.5;
           waveAmplitude = 0.08;
           material.size = 0.07;
           material.opacity = 0.8;
-          coreMaterial.color.setHex(0x0284c7);
+          coreMaterial.color.setHex(0x8a6a2a);
           coreMaterial.opacity = 0.12;
           break;
+      }
+
+      if (reducedMotion) {
+        rotationSpeed = 0;
+        waveAmplitude = 0;
       }
 
       // Smooth color interpolation

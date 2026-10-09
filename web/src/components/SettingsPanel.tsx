@@ -24,8 +24,8 @@ interface SettingsPanelProps {
 const JUDGE_MODELS = ['qwen2.5:1.5b', 'llama3.2:3b', 'llama3.2:1b'];
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <section className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-    <h3 className="text-[11px] font-mono font-semibold tracking-[0.14em] text-slate-400 uppercase">{title}</h3>
+  <section className="card">
+    <h3 className="card-title m-0">{title}</h3>
     {children}
   </section>
 );
@@ -39,13 +39,13 @@ const Toggle: React.FC<{
   <label className="flex items-start gap-3 min-h-11 cursor-pointer">
     <input
       type="checkbox"
-      className="mt-1 w-5 h-5 accent-cyan-400 shrink-0"
+      className="mt-1 w-5 h-5 accent-brass-400 shrink-0"
       checked={checked}
       onChange={(e) => onChange(e.target.checked)}
     />
     <span>
-      <span className="block font-semibold text-slate-100">{label}</span>
-      <span className="block text-[13px] text-slate-400">{hint}</span>
+      <span className="block font-medium text-ivory-100">{label}</span>
+      <span className="block text-[13px] text-ivory-500">{hint}</span>
     </span>
   </label>
 );
@@ -76,15 +76,15 @@ const Range: React.FC<{
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex justify-between gap-3">
-        <label htmlFor={id} className="text-slate-200">
+        <label htmlFor={id} className="text-ivory-100">
           {label}
         </label>
-        <span className="font-mono text-cyan-300">{format(draft)}</span>
+        <span className="font-mono text-brass-300 tabular-nums">{format(draft)}</span>
       </div>
       <input
         id={id}
         type="range"
-        className="w-full h-7 accent-cyan-400"
+        className="w-full h-7 accent-brass-400"
         min={min}
         max={max}
         step={step}
@@ -94,7 +94,7 @@ const Range: React.FC<{
         onKeyUp={commit}
         onBlur={commit}
       />
-      {hint && <span className="text-[13px] text-slate-400">{hint}</span>}
+      {hint && <span className="text-[13px] text-ivory-500">{hint}</span>}
     </div>
   );
 };
@@ -119,7 +119,7 @@ const NumberField: React.FC<{
   };
   return (
     <div className="flex-1 min-w-[130px] flex flex-col gap-1.5">
-      <label htmlFor={id} className="text-slate-200">
+      <label htmlFor={id} className="text-ivory-100">
         {label}
       </label>
       <input
@@ -127,7 +127,7 @@ const NumberField: React.FC<{
         type="number"
         min={1}
         max={100}
-        className="h-11 px-3 rounded-lg border border-slate-700 bg-slate-950 text-slate-100"
+        className="field"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
@@ -180,34 +180,32 @@ const PasskeyList: React.FC<{ base: string }> = ({ base }) => {
 
   return (
     <div className="flex flex-col gap-2">
-      <h4 className="text-slate-200 inline-flex items-center gap-2">
-        <KeyRound className="w-4 h-4 text-cyan-300" aria-hidden="true" />
+      <h4 className="m-0 text-ivory-100 font-sans font-medium inline-flex items-center gap-2">
+        <KeyRound className="w-4 h-4 text-brass-300" aria-hidden="true" />
         Passkeys enregistrées{passkeys ? ` (${passkeys.length})` : ''}
       </h4>
-      {error && <p className="text-[13px] text-rose-300">{error}</p>}
-      {passkeys === null && !error && <p className="text-[13px] text-slate-400">Lecture…</p>}
+      {error && <p className="m-0 text-[13px] text-danger-300">{error}</p>}
+      {passkeys === null && !error && <p className="m-0 text-[13px] text-ivory-500">Lecture…</p>}
       {passkeys?.length === 0 && (
-        <p className="text-[13px] text-amber-200">
+        <p className="m-0 text-[13px] text-alert-300">
           Aucune passkey : l'accès repose sur le jeton de <span className="font-mono">nestord onboard</span>.
         </p>
       )}
       {passkeys && passkeys.length > 0 && (
-        <ul className="flex flex-col divide-y divide-slate-800 rounded-lg border border-slate-800">
+        <ul className="m-0 p-0 list-none flex flex-col divide-y divide-ink-800 rounded-lg border border-ink-800">
           {passkeys.map((passkey) => (
             <li key={passkey.id} className="flex items-center gap-3 px-3 min-h-11">
               <span className="flex-1 min-w-0">
-                <span className="block text-slate-100 font-mono text-[13px] truncate">{passkey.rp_id}</span>
-                <span className="block text-[12px] text-slate-400">créée le {formatDate(passkey.created_at_ms)}</span>
+                <span className="block text-ivory-100 font-mono text-[13px] truncate">{passkey.rp_id}</span>
+                <span className="block text-[12px] text-ivory-500">créée le {formatDate(passkey.created_at_ms)}</span>
               </span>
               <button
                 type="button"
                 disabled={busy}
                 onClick={() => revoke(passkey.id)}
                 onBlur={() => confirming === passkey.id && setConfirming(null)}
-                className={`h-9 px-3 rounded-lg border text-[13px] font-semibold disabled:opacity-50 ${
-                  confirming === passkey.id
-                    ? 'border-rose-400 bg-rose-500/20 text-rose-100'
-                    : 'border-slate-700 text-slate-300 hover:border-rose-400/70 hover:text-rose-100'
+                className={`btn min-h-9 px-3 text-[13px] ${
+                  confirming === passkey.id ? 'border-danger-400 bg-danger-600/20 text-danger-300' : 'hover:border-danger-600 hover:text-danger-300'
                 }`}
               >
                 {confirming === passkey.id ? 'Confirmer' : 'Révoquer'}
@@ -216,7 +214,7 @@ const PasskeyList: React.FC<{ base: string }> = ({ base }) => {
           ))}
         </ul>
       )}
-      <p className="text-[13px] text-slate-400">
+      <p className="m-0 text-[13px] text-ivory-500">
         Révoquer une passkey n'interrompt pas les sessions déjà ouvertes avec elle ; elles expirent sous 7 jours ou à la
         déconnexion.
       </p>
@@ -255,25 +253,20 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
   return (
     <div className="absolute inset-0 z-30 flex justify-end select-text">
-      <button type="button" aria-label="Fermer les réglages" className="flex-1 bg-black/50" onClick={onClose} />
+      <button type="button" aria-label="Fermer les réglages" className="flex-1 bg-ink-950/60 backdrop-blur-sm" onClick={onClose} />
       <aside
         aria-label="Réglages"
-        className="w-full sm:w-[440px] h-full overflow-y-auto bg-[#0b111e] border-l border-slate-800 p-4 sm:p-5 flex flex-col gap-4 text-sm"
+        className="w-full sm:w-[460px] h-full overflow-y-auto bg-ink-950 border-l border-ink-800 p-4 sm:p-5 flex flex-col gap-4 text-sm"
       >
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-slate-100">Réglages</h2>
-          <button
-            type="button"
-            aria-label="Fermer"
-            onClick={onClose}
-            className="w-11 h-11 inline-flex items-center justify-center rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500"
-          >
+          <h2 className="m-0 font-display text-[22px] text-ivory-50">Réglages</h2>
+          <button type="button" aria-label="Fermer" onClick={onClose} className="btn btn-icon">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <Section title="Accès au daemon">
-          <p className={connected && authRequired ? 'text-cyan-300' : 'text-amber-200'}>
+          <p className={`m-0 ${connected && authRequired ? 'text-ok-300' : 'text-alert-300'}`}>
             {!connected
               ? 'Non connecté : le daemon ne répond pas.'
               : authRequired
@@ -281,9 +274,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               : 'Connecté sans authentification : toute connexion locale peut piloter Nestor. Les connecteurs externes restent désactivés.'}
           </p>
           {!authRequired && (
-            <p className="text-[13px] text-slate-400">
+            <p className="m-0 text-[13px] text-ivory-500">
               Pour protéger l'accès par une passkey, lancez{' '}
-              <span className="font-mono text-slate-200">nestord onboard --passkey</span> et ouvrez le lien affiché.
+              <span className="font-mono text-ivory-100">nestord onboard --passkey</span> et ouvrez le lien affiché.
             </p>
           )}
           {canLogout && (
@@ -291,12 +284,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               <button
                 type="button"
                 onClick={auth.logout}
-                className="self-start h-11 px-4 inline-flex items-center gap-2 rounded-lg border border-slate-600 bg-slate-900 text-slate-100 font-semibold hover:border-rose-400/70 hover:text-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
+                className="btn self-start hover:border-danger-600 hover:text-danger-300"
               >
                 <LogOut className="w-4 h-4" aria-hidden="true" />
                 Se déconnecter
               </button>
-              <p className="text-[13px] text-slate-400">
+              <p className="m-0 text-[13px] text-ivory-500">
                 Efface la session de cet onglet et le jeton mémorisé, puis revient à l'écran de connexion.
               </p>
             </>
@@ -306,7 +299,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         </Section>
 
         {!settings ? (
-          <p className="text-slate-400">En attente des réglages du daemon : nestord n'est pas connecté.</p>
+          <p className="m-0 text-ivory-500">En attente des réglages du daemon : nestord n'est pas connecté.</p>
         ) : (
           <>
             <Section title="Écoute et interruption">
@@ -328,7 +321,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 checked={settings.smart_turn}
                 onChange={(v) => onChange({ smart_turn: v })}
               />
-              <div className="border-t border-slate-800 pt-3 flex flex-col gap-4">
+              <div className="border-t border-ink-800 pt-3 flex flex-col gap-4">
                 <Range
                   id="barge-threshold"
                   label="Seuil de parole"
@@ -389,12 +382,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
             <Section title="Conscience (juge local)">
               <div className="flex flex-col gap-1.5">
-                <label htmlFor="judge-model" className="text-slate-200">
+                <label htmlFor="judge-model" className="text-ivory-100">
                   Modèle
                 </label>
                 <select
                   id="judge-model"
-                  className="h-11 px-3 rounded-lg border border-slate-700 bg-slate-950 text-slate-100"
+                  className="field"
                   value={settings.judge_model}
                   onChange={(e) => onChange({ judge_model: e.target.value })}
                 >
@@ -404,7 +397,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     </option>
                   ))}
                 </select>
-                <span className="text-[13px] text-slate-400">
+                <span className="text-[13px] text-ivory-500">
                   Les dangers évidents (rm -rf, sudoers, .bashrc, envoi d'un secret…) sont tranchés par des règles
                   fixes ; le modèle juge le reste. Sur 53 phrases de test, qwen2.5:1.5b ne bloque aucune demande
                   ordinaire.
@@ -430,7 +423,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               <ConnectorsList connectors={connectors} onSetToolMode={onSetToolMode} />
             </Section>
 
-            <p className="text-[13px] text-slate-400">
+            <p className="m-0 text-[13px] text-ivory-500">
               Chaque changement s'applique tout de suite et est enregistré dans <span className="font-mono">ui-settings.toml</span>.
               Les mots d'activation et la voix se règlent encore dans <span className="font-mono">config.toml</span>.
             </p>

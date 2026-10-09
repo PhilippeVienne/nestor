@@ -97,6 +97,7 @@ pub fn context_event(config: &Config, current_place: &Mutex<Option<String>>) -> 
         calendar_connected: crate::calendar::configured(&config.google),
         calendar_error: crate::calendar::last_error(),
         sleep: crate::sleep::snapshot(),
+        memory_facts: crate::memory::global().and_then(|m| m.count().ok()),
     }
 }
 

@@ -13,7 +13,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { JudgeActions, ConsciencePanel } from './components/ConsciencePanel';
 import { ActivityLog } from './components/ActivityLog';
 import { MissionPanel } from './components/MissionPanel';
-import { Card, SituationPanel, TasksPanel, DevicesPanel, SystemPanel } from './components/DashboardPanels';
+import { Card, SituationPanel, SituationStrip, AlertsPanel, TasksPanel, DevicesPanel, SystemPanel } from './components/DashboardPanels';
 
 /**
  * L'ecran de connexion passe d'abord : l'application, et avec elle le WebSocket, n'est
@@ -99,35 +99,34 @@ function Dashboard({ auth, hidden }: { auth: Auth; hidden: boolean }) {
   const leftPanels = (
     <>
       <SituationPanel context={context} />
+      <AlertsPanel activity={activity} />
       <TasksPanel todos={todos} onAdd={addTodo} onComplete={completeTodo} onDelete={deleteTodo} />
-      <DevicesPanel clients={clients} connected={connectionState === 'connected'} />
     </>
   );
 
   const rightPanels = (
     <>
-      <Card title="Conscience" aside={<span className="font-mono text-[11px] text-slate-400">{settings?.judge_model ?? '—'}</span>}>
+      <Card title="Missions" aside={missions.some((m) => m.status === 'started') ? <span className="pill h-6 text-think-300 border-think-600/50">en cours</span> : undefined}>
+        {missions.length === 0 ? (
+          <p className="m-0 text-[13px] text-ivory-700">Aucune mission. Les tâches longues sont déléguées ici.</p>
+        ) : (
+          <MissionPanel missions={missions} usage={null} onStopMission={stopMission} bare />
+        )}
+      </Card>
+      <Card title="Conscience" aside={<span className="font-mono text-[11px] text-ivory-500">{settings?.judge_model ?? '—'}</span>}>
         <div className="-m-3 max-h-80 flex flex-col">
           <ConsciencePanel judgements={judgements} onResolve={resolveJudgement} />
         </div>
       </Card>
-      <Card title="Missions">
-        {missions.length === 0 ? (
-          <p className="text-slate-500 text-[13px]">Aucune mission en cours.</p>
-        ) : (
-          <div className="-m-3">
-            <MissionPanel missions={missions} usage={null} onStopMission={stopMission} />
-          </div>
-        )}
-      </Card>
-      <SystemPanel telemetry={telemetry} usage={usage} />
+      <DevicesPanel clients={clients} connected={connectionState === 'connected'} />
+      <SystemPanel telemetry={telemetry} usage={usage} context={context} />
     </>
   );
 
   return (
     <div
       inert={hidden}
-      className="flex flex-col h-screen w-screen bg-[#080a0f] text-slate-100 overflow-hidden font-sans select-none"
+      className="flex flex-col h-screen w-screen bg-ink-950 text-ivory-100 overflow-hidden font-sans select-none"
     >
       {/* Top Header */}
       <Header
@@ -148,7 +147,7 @@ function Dashboard({ auth, hidden }: { auth: Auth; hidden: boolean }) {
       {/* Main Workspace Body */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Colonne gauche du tableau de bord (grand ecran) */}
-        <aside className="hidden xl:flex w-[320px] shrink-0 flex-col gap-3 p-3 overflow-y-auto border-r border-slate-800/80 select-text">
+        <aside className="hidden xl:flex w-[330px] shrink-0 flex-col gap-3 p-3 overflow-y-auto border-r border-ink-800 select-text">
           {leftPanels}
         </aside>
 
@@ -158,12 +157,12 @@ function Dashboard({ auth, hidden }: { auth: Auth; hidden: boolean }) {
           <div
             className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${
               status === 'listening'
-                ? 'opacity-25 bg-[radial-gradient(ellipse_at_top,rgba(6,182,212,0.2),transparent_70%)]'
+                ? 'opacity-30 bg-[radial-gradient(ellipse_at_top,rgba(95,199,187,0.18),transparent_70%)]'
                 : status === 'thinking'
-                ? 'opacity-25 bg-[radial-gradient(ellipse_at_top,rgba(168,85,247,0.2),transparent_70%)]'
+                ? 'opacity-30 bg-[radial-gradient(ellipse_at_top,rgba(160,143,228,0.18),transparent_70%)]'
                 : status === 'speaking'
-                ? 'opacity-25 bg-[radial-gradient(ellipse_at_top,rgba(245,158,11,0.2),transparent_70%)]'
-                : 'opacity-10 bg-[radial-gradient(ellipse_at_top,rgba(56,189,248,0.12),transparent_70%)]'
+                ? 'opacity-30 bg-[radial-gradient(ellipse_at_top,rgba(207,165,82,0.2),transparent_70%)]'
+                : 'opacity-15 bg-[radial-gradient(ellipse_at_top,rgba(207,165,82,0.1),transparent_70%)]'
             }`}
           />
 
@@ -176,21 +175,24 @@ function Dashboard({ auth, hidden }: { auth: Auth; hidden: boolean }) {
             <div
               className={`absolute bottom-2 sm:bottom-4 w-44 sm:w-52 h-8 sm:h-10 rounded-full blur-2xl pointer-events-none transition-all duration-500 ${
                 status === 'listening'
-                  ? 'bg-cyan-500/20'
+                  ? 'bg-listen-400/20'
                   : status === 'thinking'
-                  ? 'bg-purple-500/25'
+                  ? 'bg-think-400/25'
                   : status === 'speaking'
-                  ? 'bg-amber-500/25'
-                  : 'bg-cyan-500/10'
+                  ? 'bg-brass-400/25'
+                  : 'bg-brass-400/8'
               }`}
             />
           </div>
+
+          {/* Sous 1280 px, la situation du jour reste visible sans ouvrir le tiroir */}
+          <SituationStrip context={context} />
 
           {/* Bloc Voix : ce que le daemon entend face au seuil d'interruption */}
           <VoiceHud meter={voiceMeter} settings={settings} />
 
           {/* Dialogue Section (STT voice transcripts + Streaming Claude Markdown) */}
-          <div className="flex-1 overflow-hidden relative bg-slate-950/40">
+          <div className="flex-1 overflow-hidden relative">
             <DialogueStream
               messages={messages}
               status={status}
@@ -199,8 +201,8 @@ function Dashboard({ auth, hidden }: { auth: Auth; hidden: boolean }) {
           </div>
 
           {/* Journal d'activite sous le dialogue (grand ecran) */}
-          <div className="hidden xl:flex shrink-0 h-36 flex-col border-t border-slate-800/80 bg-slate-950/60 select-text">
-            <div className="px-3 pt-2 text-[11px] font-mono font-semibold tracking-[0.14em] text-slate-400 uppercase">Journal d'activité</div>
+          <div className="hidden xl:flex shrink-0 h-36 flex-col border-t border-ink-800 bg-ink-900/40 select-text">
+            <div className="px-3 pt-2 text-[12px] text-ivory-500">Journal</div>
             <ActivityLog activity={activity} />
           </div>
 
@@ -208,13 +210,13 @@ function Dashboard({ auth, hidden }: { auth: Auth; hidden: boolean }) {
           {toolApprovals.map((approval) => (
             <div
               key={approval.id}
-              className="shrink-0 z-10 border-t border-amber-500/40 bg-amber-950/40 px-3 sm:px-6 py-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm select-text"
+              className="attention shrink-0 z-10 px-4 sm:px-6 py-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm select-text"
             >
               <div className="flex-1 min-w-[220px]">
-                <div className="font-semibold text-amber-200">
+                <div className="font-medium text-alert-300">
                   {approval.server} veut écrire : <span className="font-mono">{approval.tool}</span>
                 </div>
-                <pre className="mt-1 max-h-28 overflow-auto rounded-lg bg-black/40 p-2 text-[12px] text-slate-200 whitespace-pre-wrap break-words">
+                <pre className="m-0 mt-1 max-h-28 overflow-auto rounded-lg bg-ink-950 p-2 text-[12px] text-ivory-300 whitespace-pre-wrap break-words">
                   {approval.arguments}
                 </pre>
               </div>
@@ -226,12 +228,12 @@ function Dashboard({ auth, hidden }: { auth: Auth; hidden: boolean }) {
 
           {/* Confirmation demandee par le juge : visible meme console fermee */}
           {pendingJudgement && (
-            <div className="shrink-0 z-10 border-t border-amber-500/40 bg-amber-950/40 px-3 sm:px-6 py-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm select-text">
+            <div className="attention shrink-0 z-10 px-4 sm:px-6 py-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm select-text">
               <div className="flex-1 min-w-[220px]">
-                <div className="font-semibold text-amber-200">Confirmation requise par le juge</div>
-                <div className="text-slate-100 break-words">{pendingJudgement.text}</div>
+                <div className="font-medium text-alert-300">Votre accord est demandé</div>
+                <div className="text-ivory-100 break-words">{pendingJudgement.text}</div>
                 {pendingJudgement.rationale && (
-                  <div className="text-[13px] text-slate-300 break-words">{pendingJudgement.rationale}</div>
+                  <div className="text-[13px] text-ivory-500 break-words">{pendingJudgement.rationale}</div>
                 )}
               </div>
               <div className="w-full sm:w-[260px]">
@@ -241,7 +243,7 @@ function Dashboard({ auth, hidden }: { auth: Auth; hidden: boolean }) {
           )}
 
           {/* Bottom Controls Bar (Barge-in + Text Fallback + VU-meter + Remote Audio) */}
-          <div className="border-t border-slate-800/80 bg-slate-950/95 backdrop-blur-xl shrink-0 z-10">
+          <div className="border-t border-ink-800 bg-ink-950/95 backdrop-blur shrink-0 z-10">
             <ControlBar
               status={status}
               audioLevels={audioLevels}
@@ -256,7 +258,7 @@ function Dashboard({ auth, hidden }: { auth: Auth; hidden: boolean }) {
         </div>
 
         {/* Colonne droite du tableau de bord (grand ecran) */}
-        <aside className="hidden xl:flex w-[340px] shrink-0 flex-col gap-3 p-3 overflow-y-auto border-l border-slate-800/80 select-text">
+        <aside className="hidden xl:flex w-[340px] shrink-0 flex-col gap-3 p-3 overflow-y-auto border-l border-ink-800 select-text">
           {rightPanels}
         </aside>
 
@@ -276,14 +278,14 @@ function Dashboard({ auth, hidden }: { auth: Auth; hidden: boolean }) {
 
         {/* Tableau de bord en tiroir (petit ecran : les colonnes laterales sont masquees) */}
         {isDashboardOpen && (
-          <div className="xl:hidden absolute inset-0 z-30 flex flex-col bg-[#080a0f] select-text">
-            <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-800">
-              <h2 className="text-lg font-semibold text-slate-100">Tableau de bord</h2>
+          <div className="xl:hidden absolute inset-0 z-30 flex flex-col bg-ink-950 select-text">
+            <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-ink-800">
+              <h2 className="m-0 font-display text-[20px] text-ivory-50">Tableau de bord</h2>
               <button
                 type="button"
                 aria-label="Fermer le tableau de bord"
                 onClick={() => setIsDashboardOpen(false)}
-                className="w-11 h-11 inline-flex items-center justify-center rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500"
+                className="btn btn-icon"
               >
                 <X className="w-5 h-5" />
               </button>

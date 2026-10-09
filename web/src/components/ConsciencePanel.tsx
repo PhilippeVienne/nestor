@@ -14,9 +14,9 @@ const DECISION_LABEL: Record<JudgeItem['decision'], string> = {
 };
 
 const DECISION_COLOR: Record<JudgeItem['decision'], string> = {
-  allow: 'text-cyan-300',
-  confirm: 'text-amber-300',
-  deny: 'text-rose-300',
+  allow: 'text-ok-300',
+  confirm: 'text-alert-300',
+  deny: 'text-danger-300',
 };
 
 function statusLabel(item: JudgeItem): string {
@@ -27,23 +27,12 @@ function statusLabel(item: JudgeItem): string {
 }
 
 /** Boutons de reponse a une confirmation demandee par le juge. */
-export const JudgeActions: React.FC<{ id: number; onResolve: (id: number, approve: boolean) => void }> = ({
-  id,
-  onResolve,
-}) => (
+export const JudgeActions: React.FC<{ id: number; onResolve: (id: number, approve: boolean) => void }> = ({ id, onResolve }) => (
   <div className="flex flex-wrap gap-2">
-    <button
-      type="button"
-      onClick={() => onResolve(id, true)}
-      className="flex-1 min-w-[110px] h-11 rounded-lg border border-cyan-400 bg-cyan-900/60 text-cyan-50 font-semibold hover:bg-cyan-800/70 transition-colors"
-    >
+    <button type="button" onClick={() => onResolve(id, true)} className="btn btn-primary flex-1 min-w-[110px]">
       Approuver
     </button>
-    <button
-      type="button"
-      onClick={() => onResolve(id, false)}
-      className="flex-1 min-w-[110px] h-11 rounded-lg border border-slate-600 text-slate-200 font-semibold hover:border-slate-400 transition-colors"
-    >
+    <button type="button" onClick={() => onResolve(id, false)} className="btn flex-1 min-w-[110px]">
       Refuser
     </button>
   </div>
@@ -53,38 +42,36 @@ export const JudgeActions: React.FC<{ id: number; onResolve: (id: number, approv
 export const ConsciencePanel: React.FC<ConsciencePanelProps> = ({ judgements, model, onResolve }) => {
   const ordered = [...judgements].sort((a, b) => Number(b.pending) - Number(a.pending));
   return (
-    <div className="flex-1 overflow-y-auto p-3 space-y-2.5 text-sm">
+    <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5 text-sm">
       {model !== undefined && (
-        <div className="flex items-baseline justify-between gap-3 text-[11px] font-mono text-slate-400">
-          <span className="uppercase tracking-wider">Juge local</span>
-          <span>{model}</span>
+        <div className="flex items-baseline justify-between gap-3 text-[12px] text-ivory-500">
+          <span>Juge local</span>
+          <span className="font-mono">{model}</span>
         </div>
       )}
       {ordered.length === 0 ? (
-        <p className="text-xs text-slate-500 py-6 text-center">
+        <p className="m-0 text-[13px] text-ivory-700 py-6 text-center">
           Aucune décision pour l'instant. Chaque demande et chaque mission passe ici avant d'être exécutée.
         </p>
       ) : (
         ordered.map((item) => (
           <div
             key={item.id}
-            className={`rounded-lg border p-3 flex flex-col gap-2 ${
-              item.pending ? 'border-amber-500/50 bg-amber-950/20' : 'border-slate-800 bg-slate-900/40'
+            className={`rounded-xl border p-3 flex flex-col gap-2 ${
+              item.pending ? 'border-alert-600/60 bg-alert-600/10' : 'border-ink-800 bg-ink-900/50'
             }`}
           >
             <div className="flex items-baseline justify-between gap-3">
-              <span className={`font-semibold ${DECISION_COLOR[item.decision]}`}>{statusLabel(item)}</span>
-              <span className="font-mono text-[11px] text-slate-400 shrink-0">
+              <span className={`font-medium ${DECISION_COLOR[item.decision]}`}>{statusLabel(item)}</span>
+              <span className="font-mono text-[11px] text-ivory-500 shrink-0 tabular-nums">
                 {item.score !== undefined ? item.score : '—'}
                 {item.category ? ` · ${item.category}` : ''}
               </span>
             </div>
-            <div className="text-slate-200 break-words">{item.text}</div>
-            {item.rationale && item.decision !== 'allow' && (
-              <div className="text-[13px] text-slate-400 break-words">{item.rationale}</div>
-            )}
-            <div className="text-[10px] font-mono text-slate-500">
-              {item.source === 'mission' ? 'Mission' : 'Demande'} · {item.timestamp.toLocaleTimeString()}
+            <div className="text-ivory-100 break-words">{item.text}</div>
+            {item.rationale && item.decision !== 'allow' && <div className="text-[13px] text-ivory-500 break-words">{item.rationale}</div>}
+            <div className="text-[11px] text-ivory-700">
+              {item.source === 'mission' ? 'Mission' : 'Demande'} · {item.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </div>
             {item.pending && <JudgeActions id={item.id} onResolve={onResolve} />}
           </div>

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
-const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300';
+const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass-300';
 
 interface TokenFieldProps {
   /** Identifiant unique du champ (le composant sert sur l'ecran de connexion et dans les reglages). */
@@ -25,7 +25,7 @@ export const TokenField: React.FC<TokenFieldProps> = ({ id, onSubmit, defaultOpe
         aria-expanded={open}
         aria-controls={`${id}-form`}
         onClick={() => setOpen(!open)}
-        className={`self-start min-h-11 inline-flex items-center gap-1.5 rounded-lg text-[13px] text-slate-400 underline-offset-4 hover:text-cyan-200 hover:underline ${FOCUS}`}
+        className={`self-start min-h-11 inline-flex items-center gap-1.5 rounded-lg text-[13px] text-ivory-500 underline-offset-4 hover:text-brass-300 hover:underline ${FOCUS}`}
       >
         <Chevron className="w-4 h-4 shrink-0" aria-hidden="true" />
         Utiliser un jeton d'accès
@@ -51,18 +51,18 @@ export const TokenField: React.FC<TokenFieldProps> = ({ id, onSubmit, defaultOpe
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder="Jeton d'accès"
-              className={`flex-1 min-w-0 h-11 px-3 rounded-lg border border-slate-700 bg-slate-950 text-slate-100 placeholder-slate-500 ${FOCUS}`}
+              className="field flex-1 min-w-0"
             />
             <button
               type="submit"
               disabled={disabled || !draft.trim()}
-              className={`h-11 px-4 rounded-lg border border-slate-600 bg-slate-900 text-slate-100 font-semibold hover:border-cyan-500/60 hover:text-cyan-50 disabled:opacity-50 shrink-0 ${FOCUS}`}
+              className="btn shrink-0"
             >
               Utiliser
             </button>
           </div>
-          <p className="text-[13px] text-slate-400">
-            Jeton affiché une seule fois par <span className="font-mono text-slate-200">nestord onboard</span>. Il est
+          <p className="m-0 text-[13px] text-ivory-500">
+            Jeton affiché une seule fois par <span className="font-mono text-ivory-100">nestord onboard</span>. Il est
             mémorisé dans ce navigateur jusqu'à la déconnexion.
           </p>
         </form>
