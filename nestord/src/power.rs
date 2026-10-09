@@ -14,8 +14,7 @@
 //!   relacher l'ancien, pour ne jamais laisser de fenetre sans protection.
 //! - **Reprise** : le signal `PrepareForSleep(false)` de logind marque la
 //!   sortie de veille ; le contexte est rediffuse et les raisons reevaluees.
-//!   La relance d'une session `claude` morte n'est pas encore possible : la
-//!   session est un `OnceLock`, et sa mort bascule en mode reduit (`brain.rs`).
+//!   Une session `claude` morte est relancee (`claude_process::ensure_alive`).
 //!
 //! L'etat (presence, verrou) est publie dans l'evenement `context`.
 
@@ -199,6 +198,8 @@ pub fn spawn(
                     }
                     tracing::info!("sortie de veille : contexte recalcule");
                     PRESENCE.lock().unwrap().resumed_at_ms = Some(now_ms());
+                    // Une session claude morte pendant la veille est relancee tout de suite.
+                    crate::claude_process::ensure_alive();
                 }
                 _ = interval.tick() => {}
             }

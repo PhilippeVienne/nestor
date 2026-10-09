@@ -28,7 +28,7 @@ mod ws;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use axum::routing::{get, post};
 use axum::Router;
@@ -102,7 +102,7 @@ Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) 
 
     // La session conversationnelle n'existe pas encore : elle est renseignee
     // apres le demarrage du serveur HTTP, cf. plus bas.
-    let claude_cell: Arc<OnceLock<claude_process::ClaudeHandle>> = Arc::new(OnceLock::new());
+    let claude_cell: Arc<claude_process::ClaudeSlot> = Arc::new(claude_process::ClaudeSlot::new());
 
     #[cfg(feature = "full-audio")]
     let (tts_tx, tts_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
@@ -203,18 +203,22 @@ Creez une passkey (`nestord onboard --passkey`) ou un jeton (`nestord onboard`) 
     // Le serveur ecoute : le CLI peut maintenant se connecter a notre MCP.
     let mcp_config = write_mcp_config(&mcp_secret)?;
 
-    let claude = claude_process::spawn(
-        events_tx.clone(),
+    let spawn_params = claude_process::SpawnParams {
+        events_tx: events_tx.clone(),
         #[cfg(feature = "full-audio")]
-        Some(tts_tx.clone()),
+        tts_tx: Some(tts_tx.clone()),
         #[cfg(not(feature = "full-audio"))]
         tts_tx,
-        usage.clone(),
-        Some(mcp_config.as_path()),
-        brain.clone(),
-        config.clone(),
-    )?;
-    let _ = claude_cell.set(claude.clone());
+        usage: usage.clone(),
+        mcp_config_path: Some(mcp_config.clone()),
+        brain: brain.clone(),
+        config: config.clone(),
+        slot: claude_cell.clone(),
+    };
+    // Le superviseur garde ces parametres pour relancer la session (plantage, sortie de veille).
+    claude_process::install(spawn_params.clone());
+    let claude = claude_process::spawn(&spawn_params, None)?;
+    claude_cell.set(claude);
 
     #[cfg(feature = "full-audio")]
     audio::spawn(

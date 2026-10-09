@@ -14,7 +14,7 @@
 use std::process::Stdio;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use serde_json::Value;
@@ -22,7 +22,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{broadcast, mpsc, RwLock};
 
-use crate::claude_process::ClaudeHandle;
+use crate::claude_process::ClaudeSlot;
 use crate::config::Config;
 use crate::protocol::{DaemonStatus, Role, ServerEvent, ToolCallStatus};
 use crate::usage::UsageState;
@@ -49,7 +49,7 @@ impl ActiveBackend {
 }
 
 pub struct NestorBrain {
-    claude_handle: Arc<OnceLock<ClaudeHandle>>,
+    claude_handle: Arc<ClaudeSlot>,
     events_tx: broadcast::Sender<ServerEvent>,
     tts_tx: Option<mpsc::UnboundedSender<String>>,
     usage: Arc<UsageState>,
@@ -105,7 +105,7 @@ impl JudgeEntry {
 
 impl NestorBrain {
     pub fn new(
-        claude_handle: Arc<OnceLock<ClaudeHandle>>,
+        claude_handle: Arc<ClaudeSlot>,
         events_tx: broadcast::Sender<ServerEvent>,
         tts_tx: Option<mpsc::UnboundedSender<String>>,
         usage: Arc<UsageState>,

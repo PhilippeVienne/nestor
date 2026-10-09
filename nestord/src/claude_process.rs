@@ -3,6 +3,10 @@
 //! Spawn en mode stream-json bidirectionnel, avec purge stricte des variables
 //! d'environnement lieas a une cle API pour forcer la consommation du quota
 //! de la session locale (`claude auth login`) plutot qu'une facturation API.
+//!
+//! La session est remplacable (`ClaudeSlot`) : a la mort du processus ou a la
+//! sortie de veille, le superviseur la relance (`ensure_alive`), en reprenant
+//! la conversation par `--resume` quand l'identifiant de session est connu.
 
 use std::process::Stdio;
 use std::sync::Arc;
@@ -121,18 +125,150 @@ impl ClaudeHandle {
     }
 }
 
+/// Emplacement de la session conversationnelle courante. Vide tant que le
+/// processus n'est pas lance, et apres sa mort jusqu'a la relance : la session
+/// est remplacable, ce qui permet de la relancer apres un plantage ou une
+/// sortie de veille (cf. [`ensure_alive`]).
+#[derive(Default)]
+pub struct ClaudeSlot {
+    inner: std::sync::RwLock<Option<ClaudeHandle>>,
+}
+
+impl ClaudeSlot {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get(&self) -> Option<ClaudeHandle> {
+        self.inner.read().unwrap().clone()
+    }
+
+    pub fn set(&self, handle: ClaudeHandle) {
+        *self.inner.write().unwrap() = Some(handle);
+    }
+
+    pub fn clear(&self) {
+        *self.inner.write().unwrap() = None;
+    }
+
+    pub fn is_alive(&self) -> bool {
+        self.inner.read().unwrap().is_some()
+    }
+}
+
+/// Tout ce qu'il faut pour (re)lancer la session.
+#[derive(Clone)]
+pub struct SpawnParams {
+    pub events_tx: broadcast::Sender<ServerEvent>,
+    pub tts_tx: Option<mpsc::UnboundedSender<String>>,
+    pub usage: Arc<UsageState>,
+    pub mcp_config_path: Option<std::path::PathBuf>,
+    pub brain: Arc<crate::brain::NestorBrain>,
+    pub config: Arc<Config>,
+    pub slot: Arc<ClaudeSlot>,
+}
+
+/// Superviseur de la session : parametres de lancement, identifiant de session
+/// pour reprendre la conversation (`--resume`), et compteur d'echecs pour le
+/// delai entre deux relances.
+struct Supervisor {
+    params: SpawnParams,
+    session_id: std::sync::Mutex<Option<String>>,
+    relaunching: std::sync::atomic::AtomicBool,
+    attempts: std::sync::atomic::AtomicU32,
+    /// La derniere reprise par `--resume` est morte aussitot : la suivante repart a neuf.
+    resume_failed: std::sync::atomic::AtomicBool,
+}
+
+static SUPERVISOR: std::sync::OnceLock<Supervisor> = std::sync::OnceLock::new();
+
+/// Enregistre les parametres de lancement : a appeler une fois, avant le premier `spawn`.
+pub fn install(params: SpawnParams) {
+    let _ = SUPERVISOR.set(Supervisor {
+        params,
+        session_id: std::sync::Mutex::new(None),
+        relaunching: std::sync::atomic::AtomicBool::new(false),
+        attempts: std::sync::atomic::AtomicU32::new(0),
+        resume_failed: std::sync::atomic::AtomicBool::new(false),
+    });
+}
+
+/// Delai avant la relance numero `attempts` (0 : immediate), plafonne a cinq minutes.
+pub fn relaunch_delay(attempts: u32) -> std::time::Duration {
+    if attempts == 0 {
+        return std::time::Duration::ZERO;
+    }
+    std::time::Duration::from_secs((5u64 << (attempts - 1).min(10)).min(300))
+}
+
+/// Relance la session si elle est morte (sans effet si elle tourne ou si une
+/// relance est deja en cours). Appele par la supervision du processus et a la
+/// sortie de veille (`power.rs`). La conversation reprend avec `--resume` quand
+/// l'identifiant de session est connu ; si cette reprise echoue, la tentative
+/// suivante repart d'une session neuve.
+pub fn ensure_alive() {
+    let Some(supervisor) = SUPERVISOR.get() else { return };
+    if supervisor.params.slot.is_alive() {
+        return;
+    }
+    if supervisor.relaunching.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    tokio::spawn(async move {
+        use std::sync::atomic::Ordering;
+        let attempts = supervisor.attempts.load(Ordering::SeqCst);
+        let delay = relaunch_delay(attempts);
+        if !delay.is_zero() {
+            tracing::info!(?delay, attempts, "relance de la session claude programmee");
+            tokio::time::sleep(delay).await;
+        }
+        // Reprise de la conversation, sauf si la reprise precedente est morte aussitot
+        // (identifiant invalide ou session corrompue) : on repart alors a neuf.
+        let resume = if supervisor.resume_failed.load(Ordering::SeqCst) {
+            None
+        } else {
+            supervisor.session_id.lock().unwrap().clone()
+        };
+        match spawn(&supervisor.params, resume.as_deref()) {
+            Ok(handle) => {
+                supervisor.params.slot.set(handle);
+                tracing::info!(resumed = resume.is_some(), "session claude relancee");
+                // Retour a Claude si le mode reduit ne tenait qu'a la mort du processus.
+                supervisor.params.brain.set_backend("auto").await;
+            }
+            Err(err) => {
+                tracing::error!(?err, "relance de la session claude impossible");
+                supervisor.attempts.fetch_add(1, Ordering::SeqCst);
+                supervisor.relaunching.store(false, Ordering::SeqCst);
+                ensure_alive();
+                return;
+            }
+        }
+        supervisor.relaunching.store(false, Ordering::SeqCst);
+    });
+}
+
+fn remember_session(session_id: &str) {
+    if let Some(supervisor) = SUPERVISOR.get() {
+        let mut current = supervisor.session_id.lock().unwrap();
+        if current.as_deref() != Some(session_id) {
+            tracing::debug!(session_id, "identifiant de session claude retenu");
+            *current = Some(session_id.to_string());
+        }
+    }
+}
+
 /// Spawn le sous-processus `claude -p` en mode headless stream-json et lance
 /// les taches d'IO associees. Les evenements produits (deltas de texte,
 /// appels d'outils) sont diffuses sur `events_tx` au format `ServerEvent`.
-pub fn spawn(
-    events_tx: broadcast::Sender<ServerEvent>,
-    tts_tx: Option<mpsc::UnboundedSender<String>>,
-    usage: Arc<UsageState>,
-    mcp_config_path: Option<&std::path::Path>,
-    brain: Arc<crate::brain::NestorBrain>,
-    config: Arc<Config>,
-) -> Result<ClaudeHandle> {
+/// `resume` : identifiant d'une session precedente a reprendre.
+pub fn spawn(params: &SpawnParams, resume: Option<&str>) -> Result<ClaudeHandle> {
+    let SpawnParams { events_tx, tts_tx, usage, mcp_config_path, brain, config, slot } = params.clone();
+    let mcp_config_path = mcp_config_path.as_deref();
     let mut cmd = Command::new("claude");
+    if let Some(session_id) = resume {
+        cmd.arg("--resume").arg(session_id);
+    }
     cmd.args([
         "-p",
         "--input-format",
@@ -204,8 +340,11 @@ pub fn spawn(
     // Tache de lecture stderr : simple relais vers les logs et detection d'erreur de quota.
     tokio::spawn(stderr_task(stderr, brain.clone()));
 
-    // Supervision : attend la fin du processus pour logguer le code de sortie et declencher fallback.
+    // Supervision : attend la fin du processus, bascule en mode reduit le temps de
+    // relancer, et programme la relance (delai croissant si elle echoue en boucle).
     let brain_sup = brain.clone();
+    let started = std::time::Instant::now();
+    let resumed = resume.is_some();
     tokio::spawn(async move {
         match child.wait().await {
             Ok(status) => {
@@ -217,6 +356,22 @@ pub fn spawn(
                 brain_sup.trigger_fallback("Erreur processus Claude").await;
             }
         }
+        slot.clear();
+        if let Some(supervisor) = SUPERVISOR.get() {
+            use std::sync::atomic::Ordering;
+            // Mort precoce : la relance precedente n'a pas tenu, on espace les suivantes.
+            // Une session qui a tourne un moment repart sans attendre.
+            if started.elapsed() < std::time::Duration::from_secs(30) {
+                supervisor.attempts.fetch_add(1, Ordering::SeqCst);
+                if resumed {
+                    supervisor.resume_failed.store(true, Ordering::SeqCst);
+                }
+            } else {
+                supervisor.attempts.store(0, Ordering::SeqCst);
+                supervisor.resume_failed.store(false, Ordering::SeqCst);
+            }
+        }
+        ensure_alive();
     });
 
     Ok(ClaudeHandle { stdin_tx })
@@ -362,6 +517,11 @@ async fn handle_stream_value(
 ) {
     let event_type = value.get("type").and_then(Value::as_str).unwrap_or_default();
 
+    // Identifiant de session, pour reprendre la conversation apres une relance.
+    if let Some(session_id) = value.get("session_id").and_then(Value::as_str) {
+        remember_session(session_id);
+    }
+
     // Detection immediate des erreurs de quota ou rate limit de session
     let is_err = value.get("is_error").and_then(Value::as_bool).unwrap_or(false)
         || value.get("api_error_status").and_then(Value::as_i64) == Some(429)
@@ -486,5 +646,31 @@ async fn handle_stream_value(
         _ => {
             tracing::trace!(%event_type, "evenement stream ignore");
         }
+    }
+}
+
+#[cfg(test)]
+mod supervision_tests {
+    use super::*;
+
+    #[test]
+    fn delai_de_relance_croissant_et_plafonne() {
+        assert!(relaunch_delay(0).is_zero());
+        assert_eq!(relaunch_delay(1).as_secs(), 5);
+        assert_eq!(relaunch_delay(2).as_secs(), 10);
+        assert_eq!(relaunch_delay(4).as_secs(), 40);
+        assert_eq!(relaunch_delay(7).as_secs(), 300);
+        assert_eq!(relaunch_delay(40).as_secs(), 300, "pas de debordement");
+    }
+
+    #[test]
+    fn emplacement_de_session_vide_puis_rempli() {
+        let slot = ClaudeSlot::new();
+        assert!(!slot.is_alive());
+        let (tx, _rx) = mpsc::channel(1);
+        slot.set(ClaudeHandle { stdin_tx: tx });
+        assert!(slot.is_alive() && slot.get().is_some());
+        slot.clear();
+        assert!(slot.get().is_none());
     }
 }

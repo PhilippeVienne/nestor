@@ -9,7 +9,7 @@
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use serde_json::Value;
@@ -17,7 +17,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{broadcast, oneshot};
 
-use crate::claude_process::ClaudeHandle;
+use crate::claude_process::ClaudeSlot;
 use crate::protocol::{MissionStatus, ServerEvent, ToolCallStatus};
 use crate::usage::UsageState;
 
@@ -85,7 +85,7 @@ pub struct MissionManager {
     /// retire a la fin de la mission.
     cancels: Mutex<HashMap<u64, oneshot::Sender<String>>>,
     events_tx: broadcast::Sender<ServerEvent>,
-    claude: Arc<OnceLock<ClaudeHandle>>,
+    claude: Arc<ClaudeSlot>,
     usage: Arc<UsageState>,
     /// Programme lance a la place de `claude` / `agy` (sous-agent factice des tests).
     binary_override: Option<std::path::PathBuf>,
@@ -94,7 +94,7 @@ pub struct MissionManager {
 impl MissionManager {
     pub fn new(
         events_tx: broadcast::Sender<ServerEvent>,
-        claude: Arc<OnceLock<ClaudeHandle>>,
+        claude: Arc<ClaudeSlot>,
         usage: Arc<UsageState>,
     ) -> Self {
         Self {
@@ -212,7 +212,7 @@ impl MissionManager {
         // Reinjecte le compte rendu dans la conversation : c'est Nestor qui
         // l'annonce, avec ses contraintes de concision, plutot qu'un texte brut
         // pousse directement au TTS.
-        let claude = self.claude.get().cloned();
+        let claude = self.claude.get();
         let verdict = match status {
             MissionStatus::Completed => "terminee",
             MissionStatus::Cancelled => "annulee",
@@ -580,7 +580,7 @@ mod tests {
     async fn cancelled_mission_closes_open_tools_and_keeps_reason() {
         let (events_tx, mut rx) = broadcast::channel(64);
         let manager = Arc::new(
-            MissionManager::new(events_tx, Arc::new(OnceLock::new()), Arc::new(UsageState::default()))
+            MissionManager::new(events_tx, Arc::new(ClaudeSlot::new()), Arc::new(UsageState::default()))
                 .with_binary_override(FAKE_CLAUDE),
         );
 

@@ -39,10 +39,21 @@ systemd-inhibit --list      # WHO=nestord, WHY=mission #3 en cours ; Nestor parl
 Le signal `PrepareForSleep(false)` de logind marque la sortie de veille :
 le contexte est rediffusé (`resumed_at_ms`) et les raisons réévaluées.
 
-**Pas encore fait** : relancer une session `claude` morte pendant la veille.
-La session est un `OnceLock` et sa mort bascule en mode réduit (`brain.rs`) ;
-la boucle proactive le signale (`session_fallback`). Une relance propre demande
-de rendre la session remplaçable, chantier à part.
+Une session `claude` morte est **relancée** (`claude_process::ensure_alive`) :
+la session est remplaçable (`ClaudeSlot`), le superviseur garde les paramètres
+de lancement et l'identifiant de session, et reprend la conversation par
+`--resume` à la première tentative. Entre-temps le cerveau est en mode réduit ;
+au retour, `set_backend("auto")` revient à Claude sauf quota épuisé. Une mort
+précoce (moins de 30 s après le lancement) espace les relances : 5 s, 10 s,
+20 s… jusqu'à 5 min. La même relance joue à tout moment, pas seulement après
+une veille.
+
+Vérifié sur la machine : processus `claude` tué à la main, relancé 5 s plus
+tard, cerveau revenu sur Claude. L'identifiant de session n'est connu qu'une
+fois une conversation entamée (le CLI n'émet rien avant la première entrée) :
+une session tuée avant tout échange repart à neuf, ce qui ne perd rien. La
+reprise par `--resume` d'une conversation entamée n'a pas été exercée en
+conditions réelles (elle consomme un tour de quota).
 
 ## Dans l'interface
 
