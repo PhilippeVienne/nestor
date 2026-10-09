@@ -57,8 +57,7 @@ session par ses connecteurs). Nestor ne signale que ce qui mérite attention et
 se tait s'il n'y a rien. Chaque point consomme un tour de conversation :
 à activer en connaissance de cause.
 
-## Pas encore fait
+## Hors appel
 
-Le canal nestord → mobile hors appel (notification, appel entrant pour une
-urgence) : une alerte n'est aujourd'hui entendue que par un client connecté
-à `/ws`. Il dépend d'un transport de notification à choisir.
+Le canal nestord → mobile hors appel est décrit dans `docs/canal-mobile.md` :
+une alerte devient une notification sur le téléphone, un réveil le fait sonner.

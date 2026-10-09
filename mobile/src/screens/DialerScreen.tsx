@@ -13,7 +13,9 @@ import {
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SoundWaveOrb } from '../components/SoundWaveOrb';
-import { loadConnection, saveConnection, splitTokenFromUrl } from '../storage/connection';
+import { PermissionsAndroid, Platform } from 'react-native';
+import { NestorCall } from '../native/NestorCall';
+import { isStandbyEnabled, loadConnection, saveConnection, saveStandbyEnabled, splitTokenFromUrl } from '../storage/connection';
 import { isSharingActive, isSharingEnabled, startSharing, stopSharing } from '../location/sharing';
 
 interface DialerScreenProps {
@@ -46,6 +48,50 @@ export const DialerScreen: React.FC<DialerScreenProps> = ({
       if (enabled && !active) setSharingNote("Le suivi s'est arrêté : réactivez-le.");
     });
   }, []);
+
+  // Canal hors appel : service de premier plan, relance au lancement si la preference est posee.
+  const [standby, setStandby] = useState(false);
+  const [standbyBusy, setStandbyBusy] = useState(false);
+  const [standbyNote, setStandbyNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([isStandbyEnabled(), NestorCall.isStandbyRunning(), loadConnection()]).then(([enabled, running, saved]) => {
+      setStandby(enabled && running);
+      if (enabled && !running && saved.serverUrl) {
+        NestorCall.startStandby(saved.serverUrl, saved.token).then((ok) => setStandby(ok));
+      }
+    });
+  }, []);
+
+  const toggleStandby = async (next: boolean) => {
+    setStandbyBusy(true);
+    setStandbyNote(null);
+    try {
+      if (next) {
+        if (Platform.OS === 'android' && Platform.Version >= 33) {
+          const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+          if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+            setStandbyNote('Sans notifications, les alertes de Nestor ne seront pas visibles.');
+          }
+        }
+        const connection = splitTokenFromUrl(serverUrl, token);
+        await saveConnection(connection.url, connection.token);
+        const ok = await NestorCall.startStandby(connection.url, connection.token);
+        await saveStandbyEnabled(ok);
+        setStandby(ok);
+        if (!ok) setStandbyNote('Démarrage impossible.');
+      } else {
+        await NestorCall.stopStandby();
+        await saveStandbyEnabled(false);
+        setStandby(false);
+      }
+    } catch (err) {
+      setStandby(false);
+      setStandbyNote(err instanceof Error ? err.message : 'Activation impossible.');
+    } finally {
+      setStandbyBusy(false);
+    }
+  };
 
   const toggleSharing = async (next: boolean) => {
     setSharingBusy(true);
@@ -159,6 +205,26 @@ export const DialerScreen: React.FC<DialerScreenProps> = ({
               </TouchableOpacity>
             ))}
           </View>
+        </View>
+
+        {/* Canal hors appel */}
+        <View style={styles.card}>
+          <View style={styles.switchRow}>
+            <View style={styles.switchTextContainer}>
+              <Text style={styles.cardLabel}>Rester joignable hors appel</Text>
+              <Text style={styles.featureDesc}>
+                Connexion légère maintenue avec le daemon : alertes en notification, et le téléphone sonne au réveil programmé.
+              </Text>
+            </View>
+            <Switch
+              value={standby}
+              disabled={standbyBusy}
+              onValueChange={toggleStandby}
+              trackColor={{ false: '#334155', true: 'rgba(52, 211, 153, 0.5)' }}
+              thumbColor={standby ? '#34d399' : '#94a3b8'}
+            />
+          </View>
+          {standbyNote && <Text style={styles.sharingNote}>{standbyNote}</Text>}
         </View>
 
         {/* Partage de position en arriere-plan */}

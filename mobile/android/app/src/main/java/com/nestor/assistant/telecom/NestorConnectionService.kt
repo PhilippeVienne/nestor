@@ -42,7 +42,7 @@ class NestorConnectionService : ConnectionService() {
         val callManager = NestorCallManager.getInstance(applicationContext)
         val connection = NestorConnection(callManager)
         connection.setRinging()
-        callManager.registerActiveConnection(connection)
+        callManager.registerIncomingConnection(connection)
         return connection
     }
 

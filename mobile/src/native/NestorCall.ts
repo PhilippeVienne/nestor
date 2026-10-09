@@ -135,6 +135,22 @@ export const NestorCall = {
     return NestorCallModule.endCall();
   },
 
+  /** Canal hors appel : le telephone reste joignable (notifications, sonnerie au reveil). */
+  async startStandby(serverUrl: string, token?: string): Promise<boolean> {
+    if (!NestorCallModule) return false;
+    return NestorCallModule.startStandby({ serverUrl, token: token?.trim() || process.env.EXPO_PUBLIC_NESTOR_TOKEN || '' });
+  },
+
+  async stopStandby(): Promise<boolean> {
+    if (!NestorCallModule) return false;
+    return NestorCallModule.stopStandby();
+  },
+
+  async isStandbyRunning(): Promise<boolean> {
+    if (!NestorCallModule) return false;
+    return NestorCallModule.isStandbyRunning();
+  },
+
   async setMuted(muted: boolean): Promise<boolean> {
     if (!NestorCallModule) return false;
     return NestorCallModule.setMuted(muted);

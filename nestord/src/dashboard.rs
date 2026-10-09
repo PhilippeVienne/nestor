@@ -39,6 +39,8 @@ pub fn classify_client(explicit: Option<&str>, user_agent: Option<&str>) -> &'st
     match explicit.map(str::to_ascii_lowercase).as_deref() {
         Some("web") => return "web",
         Some("mobile") => return "mobile",
+        // Telephone en veille : canal hors appel, sans audio (cf. ws.rs).
+        Some("standby") => return "standby",
         _ => {}
     }
     let ua = user_agent.unwrap_or_default().to_ascii_lowercase();
@@ -61,9 +63,15 @@ pub fn unregister_client(id: u64) {
     CLIENTS.lock().unwrap().retain(|c| c.id != id);
 }
 
-/// Clients connectes a `/ws` : la boucle proactive se tait quand il n'y en a aucun.
+/// Clients connectes a `/ws`, tous types confondus.
 pub fn client_count() -> usize {
     CLIENTS.lock().unwrap().len()
+}
+
+/// Clients qui entendent Nestor (web, appel mobile) : un telephone en veille ne
+/// recoit que des notifications, pas la parole.
+pub fn listening_count() -> usize {
+    CLIENTS.lock().unwrap().iter().filter(|c| c.kind != "standby").count()
 }
 
 /// Clients connectes d'un type donne (`web`, `mobile`...).
@@ -229,6 +237,12 @@ pub fn spawn_ticker(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn classe_le_client_en_veille() {
+        assert_eq!(classify_client(Some("standby"), Some("okhttp/4.12")), "standby");
+        assert_eq!(classify_client(None, Some("okhttp/4.12")), "mobile");
+    }
 
     #[test]
     fn type_de_client() {

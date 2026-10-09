@@ -146,6 +146,8 @@ impl Drop for ClientGuard {
 
 async fn handle_socket(socket: WebSocket, state: Arc<AppState>, kind: &'static str) {
     let (mut sender, mut receiver) = socket.split();
+    // Telephone en veille (`?client=standby`) : evenements filtres, pas de rappel vocal.
+    let standby = kind == "standby";
     let mut events_rx = state.events_tx.subscribe();
 
     // Inscrit avant l'instantane, pour que ce client se voie lui-meme dans la liste.
@@ -165,10 +167,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, kind: &'static s
     // Rappel de debut de conversation : une nouvelle connexion (appel,
     // ouverture de l'UI) est le meilleur proxy dont on dispose pour « le
     // debut d'une conversation ». Le cooldown de TodoStore::due_now evite le
-    // spam si plusieurs clients se connectent en peu de temps.
+    // spam si plusieurs clients se connectent en peu de temps. Un telephone en
+    // veille n'entend rien : pas de rappel pour lui.
     let todos = state.todos.clone();
     let brain_for_nudge = state.brain.clone();
     let address_form = state.config.address_form.clone();
+    if !standby {
     tokio::spawn(async move {
         // Reveil survenu sans personne pour l'entendre : l'annonce de la journee d'abord.
         crate::sleep::on_session_ready(&brain_for_nudge).await;
@@ -188,10 +192,16 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, kind: &'static s
             let _ = todos.mark_notified(&ids);
         }
     });
+    }
 
     // Tache sortante : relaie tous les ServerEvent (JSON, y compris AudioChunk) vers ce client.
+    // Un telephone en veille ne recoit que ce qui lui sert : alertes, contexte, missions, etat du
+    // moteur ; jamais l'audio ni les transcriptions, qui coutent cher sur un reseau mobile.
     let mut outgoing = tokio::spawn(async move {
         while let Ok(event) = events_rx.recv().await {
+            if standby && !standby_relevant(&event) {
+                continue;
+            }
             let Ok(json) = serde_json::to_string(&event) else { continue };
             if sender.send(Message::Text(json.into())).await.is_err() {
                 break;
@@ -332,4 +342,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, kind: &'static s
         _ = &mut outgoing => incoming.abort(),
         _ = &mut incoming => outgoing.abort(),
     }
+}
+
+/// Evenements transmis a un telephone en veille (`?client=standby`).
+fn standby_relevant(event: &ServerEvent) -> bool {
+    matches!(
+        event,
+        ServerEvent::Alert { .. } | ServerEvent::Context { .. } | ServerEvent::Mission { .. } | ServerEvent::BackendStatus { .. }
+    )
 }

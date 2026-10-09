@@ -30,7 +30,10 @@ Cette application transforme votre smartphone Android en combiné d'appel dédi�
 - **Interruption vocale** : une pastille brève signale l'événement `interrupt` reçu du daemon.
 - L'app s'annonce au daemon avec `?client=mobile` (panneau « Appareils »).
 
-### 4. Position en arrière-plan
+### 4. Joignable hors appel
+- Interrupteur « Rester joignable hors appel » : `NestorStandbyService` garde un WebSocket léger vers le daemon (`?client=standby`). Alertes en notification ; une alerte de réveil fait sonner le téléphone comme un appel entrant (`NestorIncomingCall`, API Telecom), répondre ouvre l'appel. Détails : `../docs/canal-mobile.md`.
+
+### 5. Position en arrière-plan
 - Interrupteur « Partager ma position avec Nestor » : `expo-location` + `expo-task-manager`, tâche définie dans la portée globale (`src/location/sharing.ts`), envoi en `POST /location` tous les 200 m ou 5 minutes avec le jeton mémorisé. Le daemon n'en garde que le lieu reconnu. Détails : `../docs/position.md`.
 
 ---

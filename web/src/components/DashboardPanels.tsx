@@ -262,7 +262,7 @@ export const TasksPanel: React.FC<{
 
 // ------------------------------------------------------------------ Appareils
 
-const CLIENT_LABEL: Record<string, string> = { web: 'Navigateur', mobile: 'Mobile', autre: 'Autre client' };
+const CLIENT_LABEL: Record<string, string> = { web: 'Navigateur', mobile: 'Mobile', standby: 'Mobile en veille', autre: 'Autre client' };
 
 export const DevicesPanel: React.FC<{ clients: ClientInfo[]; connected: boolean }> = ({ clients, connected }) => (
   <Card title="Appareils">

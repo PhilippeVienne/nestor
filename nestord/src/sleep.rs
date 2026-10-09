@@ -72,7 +72,7 @@ fn write_wake_header(secret: &str) -> Result<()> {
 /// Annonce de reveil en attente, remise des qu'un client ecoute et que la session est
 /// prete (appele a la connexion d'un client et a la relance de la session).
 pub async fn on_session_ready(brain: &crate::brain::NestorBrain) {
-    if crate::dashboard::client_count() == 0 || !crate::claude_process::session_alive() {
+    if crate::dashboard::listening_count() == 0 || !crate::claude_process::session_alive() {
         return;
     }
     if let Some(announcement) = take_pending_announcement() {
@@ -440,7 +440,7 @@ pub async fn wake_handler(State(state): State<Arc<AppState>>, headers: HeaderMap
     // Session morte pendant la nuit : relancee, et l'annonce attend qu'elle soit prete
     // (`on_session_ready`) plutot que de partir en mode reduit avec son annonce de quota.
     crate::claude_process::ensure_alive();
-    let delivered = if crate::dashboard::client_count() > 0 && crate::claude_process::session_alive() {
+    let delivered = if crate::dashboard::listening_count() > 0 && crate::claude_process::session_alive() {
         state.brain.send_internal_report(&report).await.is_ok()
     } else {
         false

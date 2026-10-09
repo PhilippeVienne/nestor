@@ -24,6 +24,7 @@ import android.os.Bundle
 import android.os.Looper
 import android.os.PowerManager
 import android.telecom.CallAudioState
+import android.telecom.DisconnectCause
 import android.telecom.PhoneAccount
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
@@ -219,6 +220,68 @@ class NestorCallManager private constructor(private val context: Context) {
         activeConnection = connection
         connection.onConnected()
         startCallSession()
+    }
+
+    // ------------------------------------------------------------ appel entrant
+    // Declenche par NestorStandbyService (alerte de reveil) : le telephone sonne via
+    // l'API Telecom ; la session audio ne demarre qu'a la reponse.
+
+    @Volatile private var incomingText: String = "Nestor vous appelle"
+
+    fun ringIncoming(callUrl: String, text: String) {
+        if (isCallActive || activeConnection != null) {
+            Log.w(TAG, "appel entrant ignore : un appel est deja en cours")
+            return
+        }
+        currentServerUrl = callUrl
+        incomingText = text
+        initPhoneAccount()
+        try {
+            val extras = Bundle().apply {
+                putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, phoneAccountHandle)
+            }
+            telecomManager.addNewIncomingCall(phoneAccountHandle, extras)
+            Log.d(TAG, "appel entrant signale a Telecom")
+        } catch (e: Exception) {
+            // Sans Telecom (compte refuse), on sonne quand meme : la reponse lance l'appel.
+            Log.e(TAG, "addNewIncomingCall impossible, sonnerie directe", e)
+            showIncomingUi()
+        }
+    }
+
+    /** Connexion entrante creee par Telecom : elle sonne, rien d'autre tant qu'on ne repond pas. */
+    fun registerIncomingConnection(connection: NestorConnection) {
+        Log.d(TAG, "registerIncomingConnection")
+        activeConnection = connection
+    }
+
+    fun showIncomingUi() {
+        NestorIncomingCall.show(context, incomingText)
+    }
+
+    fun answerIncoming() {
+        Log.d(TAG, "appel entrant accepte")
+        NestorIncomingCall.cancel(context)
+        activeConnection?.onConnected()
+        if (!isCallActive) startCallSession()
+        try {
+            context.startActivity(
+                Intent(context, com.nestor.assistant.MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "impossible d'amener l'application au premier plan", e)
+        }
+    }
+
+    fun rejectIncoming() {
+        Log.d(TAG, "appel entrant refuse")
+        NestorIncomingCall.cancel(context)
+        activeConnection?.let {
+            it.setDisconnected(DisconnectCause(DisconnectCause.REJECTED, "Appel refuse"))
+            it.destroy()
+        }
+        activeConnection = null
     }
 
     private fun startDirectCallSession() {

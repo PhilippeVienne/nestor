@@ -69,6 +69,17 @@ export function useNestorCall() {
   }, [callState]);
 
   // Subscribe to native events
+  // Un appel entrant repondu depuis la notification a pu demarrer avant ce JS :
+  // on relit l'etat natif au montage pour afficher l'ecran d'appel.
+  useEffect(() => {
+    NestorCall.getCallState().then((state) => {
+      if (state.isCallActive) {
+        setCallState('ACTIVE');
+        setCallStatusDetails('Connecté à Nestor');
+      }
+    });
+  }, []);
+
   useEffect(() => {
     const subCallState = NestorCall.onCallStateChanged((e) => {
       console.log('[NestorCall] CallState:', e.state, e.details);

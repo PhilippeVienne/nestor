@@ -84,6 +84,38 @@ class NestorCallModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
+    /** Canal hors appel : service de premier plan connecte au daemon (cf. NestorStandbyService). */
+    @ReactMethod
+    fun startStandby(options: ReadableMap?, promise: Promise) {
+        try {
+            val serverUrl = options?.getString("serverUrl") ?: ""
+            val token = options?.getString("token") ?: ""
+            if (serverUrl.isEmpty()) {
+                promise.reject("STANDBY_ERROR", "adresse du daemon absente")
+                return
+            }
+            NestorStandbyService.start(reactContext, serverUrl, token)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("STANDBY_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun stopStandby(promise: Promise) {
+        try {
+            NestorStandbyService.stop(reactContext)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("STANDBY_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun isStandbyRunning(promise: Promise) {
+        promise.resolve(NestorStandbyService.isRunning)
+    }
+
     @ReactMethod
     fun endCall(promise: Promise) {
         try {

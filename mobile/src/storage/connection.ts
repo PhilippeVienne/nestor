@@ -53,3 +53,23 @@ export function splitTokenFromUrl(rawUrl: string, token: string): { url: string;
   const cleaned = url.replace(/([?&])token=[^&]*&?/, '$1').replace(/[?&]$/, '');
   return { url: cleaned, token: found || token.trim() };
 }
+
+const STANDBY_KEY = 'nestor_standby';
+
+/** Preference « rester joignable hors appel ». */
+export async function isStandbyEnabled(): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(STANDBY_KEY)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export async function saveStandbyEnabled(enabled: boolean): Promise<void> {
+  try {
+    if (enabled) await SecureStore.setItemAsync(STANDBY_KEY, '1');
+    else await SecureStore.deleteItemAsync(STANDBY_KEY);
+  } catch (err) {
+    console.warn('[connection] preference de veille non enregistree', err);
+  }
+}

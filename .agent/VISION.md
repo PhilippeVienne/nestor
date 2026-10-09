@@ -484,8 +484,8 @@ Réalisée le 2026-10-09 sauf le canal mobile hors appel, voir `docs/agenda.md`.
 - [x] Prochains événements et lieux dans le contexte et dans `get_context`.
 - [x] Nouvelles règles de la boucle proactive : départ à temps (estimation
       du trajet), rendez-vous imminent, mails importants.
-- [ ] Canal nestord → mobile hors appel (notification, appel entrant pour
-      les urgences), pour choisir le bon canal d'alerte.
+- [x] Canal nestord → mobile hors appel (notification, appel entrant pour
+      les urgences), voir `docs/canal-mobile.md`.
 
 ### Étape G — Veille nocturne et réveil
 
@@ -497,8 +497,8 @@ matérielle du réveil à faire.
 - [x] Calcul de l'heure de réveil sur le premier rendez-vous du lendemain.
 - [x] Timer systemd `WakeSystem=true`, vérifié armé avant de relâcher
       l'inhibition.
-- [~] Réveil de Monsieur : annonce de la journée faite ; sonnerie sur le
-      téléphone en attente du canal mobile hors appel. Annonce de la
+- [x] Réveil de Monsieur : annonce de la journée, et sonnerie sur le
+      téléphone par le canal hors appel (`docs/canal-mobile.md`). Annonce de la
       journée.
 - [~] Tests sur la machine cible : mode de veille relevé (`s2idle [deep]`),
       timer utilisateur `WakeSystem` accepté ; réveil réel et NVIDIA à

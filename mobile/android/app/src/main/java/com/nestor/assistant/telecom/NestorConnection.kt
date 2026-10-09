@@ -64,6 +64,25 @@ class NestorConnection(
         callManager.resumeAudio()
     }
 
+    override fun onShowIncomingCallUi() {
+        Log.d(TAG, "onShowIncomingCallUi")
+        callManager.showIncomingUi()
+    }
+
+    override fun onAnswer() {
+        Log.d(TAG, "onAnswer")
+        callManager.answerIncoming()
+    }
+
+    override fun onAnswer(videoState: Int) {
+        onAnswer()
+    }
+
+    override fun onReject() {
+        Log.d(TAG, "onReject")
+        callManager.rejectIncoming()
+    }
+
     override fun onSilence() {
         Log.d(TAG, "onSilence")
         callManager.muteMic(true)

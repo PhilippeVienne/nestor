@@ -338,8 +338,12 @@ pub fn spawn(
                     if config.quiet_hours.contains(Local::now().time()) {
                         continue;
                     }
-                    if crate::dashboard::client_count() == 0 {
-                        // Personne pour entendre : l'alerte attend la prochaine connexion.
+                    // Qui est la ? Un client qui entend (web, appel mobile) recoit la parole de
+                    // Nestor ; un telephone en veille ne recoit que l'evenement `alert`, qu'il
+                    // affiche en notification. Personne : l'alerte attend la prochaine connexion.
+                    let speaking = crate::dashboard::listening_count() > 0;
+                    let notify_only = !speaking && crate::dashboard::client_count() > 0;
+                    if !speaking && !notify_only {
                         continue;
                     }
                     if matches!(status, DaemonStatus::Thinking | DaemonStatus::Speaking) {
@@ -349,7 +353,7 @@ pub fn spawn(
 
                     // Point sur les mails : une consigne a la session (qui a Gmail par ses
                     // connecteurs), jamais une lecture a voix haute. Desactive par defaut.
-                    if cfg.mail_check_minutes > 0 && now.saturating_sub(last_mail_check_ms) >= cfg.mail_check_minutes * 60_000 {
+                    if speaking && cfg.mail_check_minutes > 0 && now.saturating_sub(last_mail_check_ms) >= cfg.mail_check_minutes * 60_000 {
                         last_mail_check_ms = now;
                         let consigne = format!(
                             "[Consigne interne : fais le point sur les mails non lus importants de {}. \
@@ -367,7 +371,7 @@ Ne signale que ce qui merite attention, en une phrase ; s'il n'y a rien, ne dis 
                     // Taches a relancer : la memoire de dedoublonnage est celle du
                     // magasin (`mark_notified`), a une cadence plus lente.
                     let mut notified_todos: Vec<i64> = Vec::new();
-                    if now.saturating_sub(last_todo_check_ms) >= cfg.todo_interval_minutes.max(1) * 60_000 {
+                    if speaking && now.saturating_sub(last_todo_check_ms) >= cfg.todo_interval_minutes.max(1) * 60_000 {
                         last_todo_check_ms = now;
                         match todos.due_now() {
                             Ok(due) if !due.is_empty() => {
@@ -382,14 +386,16 @@ Ne signale que ce qui merite attention, en une phrase ; s'il n'y a rien, ne dis 
                         continue;
                     }
 
-                    let report = build_report(&alerts, &config.address_form);
-                    tracing::info!(count = alerts.len(), kinds = ?alerts.iter().map(|a| a.kind).collect::<Vec<_>>(), "alerte proactive");
-                    if let Err(err) = brain.send_internal_report(&report).await {
-                        tracing::error!(?err, "echec d'envoi de l'alerte proactive");
-                        for alert in &alerts {
-                            dedup.forget(&alert.key);
+                    tracing::info!(count = alerts.len(), kinds = ?alerts.iter().map(|a| a.kind).collect::<Vec<_>>(), speaking, "alerte proactive");
+                    if speaking {
+                        let report = build_report(&alerts, &config.address_form);
+                        if let Err(err) = brain.send_internal_report(&report).await {
+                            tracing::error!(?err, "echec d'envoi de l'alerte proactive");
+                            for alert in &alerts {
+                                dedup.forget(&alert.key);
+                            }
+                            continue;
                         }
-                        continue;
                     }
                     if !notified_todos.is_empty() {
                         if let Err(err) = todos.mark_notified(&notified_todos) {

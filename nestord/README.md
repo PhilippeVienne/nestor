@@ -10,6 +10,7 @@ et expose une API WebSocket a l'UI web et a l'appli mobile sur `127.0.0.1:8340/w
 - `../docs/position.md` : position envoyee par l'appli mobile, `POST /location`.
 - `../docs/veille.md` : presence devant l'ordinateur et inhibition de la veille.
 - `../docs/agenda.md` : Google Calendar en lecture directe, `nestord onboard --google`.
+- `../docs/canal-mobile.md` : telephone joignable hors appel (`?client=standby`), sonnerie au reveil.
 
 Endpoints : `/ws` (WebSocket UI) et `/mcp` (serveur MCP consomme par la
 session conversationnelle elle-meme).
