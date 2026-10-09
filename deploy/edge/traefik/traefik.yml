@@ -1,0 +1,31 @@
+# Configuration statique de Traefik. Un seul point d'entree, sur l'adresse Tailscale
+# de la machine uniquement : la resolution du nom par le DNS partage du tailnet mene ici.
+entryPoints:
+  websecure:
+    address: "100.84.235.85:443"
+    http:
+      tls: {}
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+certificatesResolvers:
+  cloudflare:
+    acme:
+      # email : passe en ligne de commande (compose), depuis le fichier d'environnement.
+      storage: /acme/acme.json
+      dnsChallenge:
+        provider: cloudflare
+        resolvers:
+          - "1.1.1.1:53"
+          - "1.0.0.1:53"
+
+api:
+  dashboard: false
+
+log:
+  level: INFO
+
+accessLog: {}

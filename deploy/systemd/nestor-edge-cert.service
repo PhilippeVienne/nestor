@@ -1,0 +1,6 @@
+[Unit]
+Description=Nestor : renouvellement du certificat ts.net de Traefik
+
+[Service]
+Type=oneshot
+ExecStart=%h/github.com/PhilippeVienne/nestor/deploy/edge/renew-ts-cert.sh

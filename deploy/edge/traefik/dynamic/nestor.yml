@@ -1,0 +1,43 @@
+# Routage par nom. Deux noms, deux certificats :
+# - nestor.vienne.me : Let's Encrypt par DNS-01 (Cloudflare), vers nestord ;
+# - kanto.felis-ionian.ts.net : certificat fourni par Tailscale (certs/, renouvele par
+#   le timer nestor-edge-cert), vers le service que `tailscale serve` publiait sur le 443.
+http:
+  routers:
+    nestor-api:
+      rule: "Host(`nestor.vienne.me`) && (PathPrefix(`/ws`) || PathPrefix(`/auth`) || PathPrefix(`/location`))"
+      entryPoints: [websecure]
+      service: nestord-api
+      tls:
+        certResolver: cloudflare
+    nestor-ui:
+      rule: "Host(`nestor.vienne.me`)"
+      entryPoints: [websecure]
+      service: nestord-ui
+      tls:
+        certResolver: cloudflare
+    kanto-ts:
+      rule: "Host(`kanto.felis-ionian.ts.net`)"
+      entryPoints: [websecure]
+      service: kanto-home
+      tls: {}
+
+  services:
+    # /mcp et /wake ne sont pas routes : seuls /ws, /auth et /location atteignent l'API.
+    nestord-api:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:8340"
+    nestord-ui:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:8341"
+    kanto-home:
+      loadBalancer:
+        servers:
+          - url: "http://192.168.1.15:8360"
+
+tls:
+  certificates:
+    - certFile: /certs/kanto.felis-ionian.ts.net.crt
+      keyFile: /certs/kanto.felis-ionian.ts.net.key

@@ -1,0 +1,11 @@
+# Page publique de nestor.vienne.me : un Worker sans origine. Depuis Internet, c'est la
+# seule chose qui repond a ce nom ; sur le tailnet, le DNS partage mene a kanto a la place.
+#
+#   npx wrangler login && npx wrangler deploy
+name = "nestor-public"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[[routes]]
+pattern = "nestor.vienne.me"
+custom_domain = true

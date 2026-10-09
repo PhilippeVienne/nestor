@@ -1,0 +1,16 @@
+[Unit]
+Description=nestord, le daemon de Nestor (audio, session claude, API sur 127.0.0.1:8340)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/github.com/PhilippeVienne/nestor/nestord
+# Bibliotheques CUDA 13 reutilisees d'Ollama (cf. nestord/README.md).
+Environment=LD_LIBRARY_PATH=/usr/local/lib/ollama/cuda_v13
+Environment=RUST_LOG=nestord=info
+ExecStart=%h/github.com/PhilippeVienne/nestor/nestord/target/debug/nestord
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

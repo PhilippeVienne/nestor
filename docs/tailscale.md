@@ -1,82 +1,107 @@
-# Nestor sur le tailnet : nom de domaine et TLS, sans rien exposer d'autre
+# nestor.vienne.me : un nom, deux pages, et tout passe par Tailscale
 
-Objectif : joindre Nestor depuis le téléphone ou un autre poste par un vrai nom
-de domaine en HTTPS, en garantissant que **seul le tailnet** y accède.
+Objectif : joindre Nestor par `https://nestor.vienne.me`, avec un vrai certificat,
+en garantissant que **l'application et l'API ne sont atteignables que par le
+tailnet**, tandis que depuis Internet le même nom ne montre qu'une page de
+présentation sans lien avec la machine.
 
-## Ce qui garantit le passage par Tailscale
+## Comment c'est garanti
 
-- `nestord` n'écoute que sur la boucle locale : `127.0.0.1:8340` (API) et
-  `127.0.0.1:8341` (interface construite, option `ui_dir`). Aucune interface
-  réseau ne porte Nestor.
-- `tailscale serve` publie ces ports en HTTPS sur le nom MagicDNS de la machine
-  (`kanto.felis-ionian.ts.net`), **tailnet only** : le certificat est émis par
-  Let's Encrypt via Tailscale, le trafic entre par le tunnel WireGuard, rien
-  n'est ouvert sur Internet (Funnel reste désactivé : `tailscale funnel status`).
-- Seuls trois chemins de l'API sont montés : `/ws`, `/auth` et `/location`.
-  `/mcp` (outils de l'assistant) et `/wake` (réveil) ne sont pas publiés : une
-  requête vers eux tombe sur le serveur statique, qui répond 405 ou 404.
-- `/ws` et `/auth` vérifient l'en-tête `Origin` : seule l'origine déclarée dans
-  `allowed_origins` passe, en plus de la machine locale.
+- **Kanto n'est jamais joignable depuis Internet.** `nestord` n'écoute que sur
+  la boucle locale (`127.0.0.1:8340` pour l'API, `127.0.0.1:8341` pour
+  l'interface construite, option `ui_dir`). Traefik et dnsmasq n'écoutent que
+  sur l'adresse Tailscale de la machine (`100.84.235.85`), jamais sur le réseau
+  local ni sur une interface publique. Aucune redirection de port sur la box.
+- **Depuis Internet**, `nestor.vienne.me` est un domaine personnalisé d'un
+  Worker Cloudflare (`deploy/cloudflare-worker`) : Cloudflare répond lui-même
+  avec la page publique, sans origine. Il n'existe aucun chemin vers kanto.
+- **Depuis le tailnet**, le DNS partagé de Tailscale envoie les noms de
+  `vienne.me` à dnsmasq sur kanto, qui répond `100.84.235.85` pour
+  `nestor.vienne.me` et transmet le reste à Cloudflare. Le navigateur arrive
+  donc par le tunnel WireGuard sur Traefik, qui présente un certificat
+  Let's Encrypt pour `nestor.vienne.me` obtenu par défi DNS-01 (jeton Cloudflare
+  limité à la zone), et relaie vers nestord.
+- **Seuls `/ws`, `/auth` et `/location` atteignent l'API.** `/mcp` (outils de
+  l'assistant) et `/wake` (réveil) ne sont pas routés. `/ws` et `/auth`
+  vérifient en plus l'en-tête `Origin` contre `allowed_origins`.
 - Les preuves d'accès restent celles de `docs/passkey.md` : passkey liée au
-  domaine Tailscale, ou jeton de `nestord onboard` pour l'application mobile.
+  domaine `nestor.vienne.me`, ou jeton de `nestord onboard` pour le téléphone.
 
-## Mise en place (faite sur kanto le 2026-10-09)
+Le nom MagicDNS `kanto.felis-ionian.ts.net` continue d'être servi par Traefik
+sur le même port 443, vers le service qu'il publiait déjà, avec le certificat
+fourni par Tailscale (`tailscale cert`, renouvelé chaque mois par un timer).
 
-1. `config.toml` :
+## Les pièces
 
-   ```toml
-   allowed_origins = ["https://kanto.felis-ionian.ts.net:8443"]
-   ui_url = "https://kanto.felis-ionian.ts.net:8443"
-   ui_dir = "~/github.com/PhilippeVienne/nestor/web/dist"   # npm run build dans web/
-   ```
+| Pièce | Où | Rôle |
+|---|---|---|
+| Traefik | `deploy/edge/traefik`, conteneur `nestor-edge-traefik` | TLS et routage par nom, sur `100.84.235.85:443` |
+| dnsmasq | `deploy/edge/dnsmasq`, conteneur `nestor-edge-dnsmasq` | DNS partagé du tailnet pour `vienne.me`, sur `100.84.235.85:53` |
+| Worker | `deploy/cloudflare-worker` | page publique de `nestor.vienne.me` |
+| nestord | `ui_dir`, `allowed_origins`, `ui_url` dans `config.toml` | API et interface construite, boucle locale |
+| systemd | `deploy/systemd` | `nestord.service`, et le timer de renouvellement du certificat ts.net |
 
-2. Interface construite : `cd web && npm run build`. La page servie en HTTPS
-   parle au daemon par sa propre origine (`wss://<hôte>/ws`), sans variable
-   d'environnement.
+## Mise en place
 
-3. Publication, persistante au redémarrage (le port 443 reste à son usage
-   actuel ; Nestor prend 8443) :
+Trois actions sont à faire par vous, le reste est prêt.
 
-   ```sh
-   tailscale serve --bg --https=8443 --set-path=/         http://127.0.0.1:8341
-   tailscale serve --bg --https=8443 --set-path=/ws       http://127.0.0.1:8340/ws
-   tailscale serve --bg --https=8443 --set-path=/auth     http://127.0.0.1:8340/auth
-   tailscale serve --bg --https=8443 --set-path=/location http://127.0.0.1:8340/location
-   tailscale serve status
-   ```
-
-   Le chemin cible doit répéter le chemin monté : sans lui, Tailscale le
-   retire avant de relayer. Servir un dossier directement par `tailscale serve`
-   exigerait root, d'où le second port de nestord.
-
-4. Passkey pour ce domaine (une passkey est liée à un nom d'hôte, celle de
-   `localhost` ne sert pas ici) :
+1. **Cloudflare, jeton d'API** : *My Profile > API Tokens > Create Token*,
+   modèle « Edit zone DNS », zone `vienne.me` uniquement. Déposez-le dans
+   `~/.config/nestor-edge/cloudflare.env` (fichier déjà créé, droits 600) :
 
    ```sh
-   nestord onboard --passkey        # ui_url pointe déjà sur l'adresse Tailscale
+   CF_DNS_API_TOKEN=<le jeton>
+   ACME_EMAIL=<votre adresse, pour le compte Let's Encrypt>
    ```
 
-   Ouvrir le lien affiché, dans les dix minutes, depuis un navigateur connecté
-   au tailnet.
+2. **Cloudflare, page publique** :
 
-5. Téléphone : Tailscale installé et connecté, puis dans l'application le
-   raccourci « Tailscale » (`wss://kanto.felis-ionian.ts.net:8443/ws`) et le
-   jeton de `nestord onboard`. Le partage de position et le canal hors appel
-   passent par la même adresse.
+   ```sh
+   cd deploy/cloudflare-worker && npx wrangler login && npx wrangler deploy
+   ```
+
+   Le domaine personnalisé crée l'enregistrement DNS proxifié de
+   `nestor.vienne.me`. Vérification depuis un réseau hors tailnet : la page
+   « Nestor, majordome personnel » s'affiche, rien d'autre.
+
+3. **Tailscale, DNS partagé** : console d'administration > *DNS* >
+   *Nameservers* > *Add nameserver* > *Custom* : `100.84.235.85`, cocher
+   *Restrict to domain* avec `vienne.me`. MagicDNS reste activé.
+
+Puis, sur kanto (je m'en charge dès que le fichier d'environnement est rempli) :
+
+```sh
+tailscale serve --https=443 off          # Traefik reprend le 443
+cd deploy/edge
+tailscale cert --cert-file certs/kanto.felis-ionian.ts.net.crt --key-file certs/kanto.felis-ionian.ts.net.key kanto.felis-ionian.ts.net
+./edge.sh up                             # Traefik + dnsmasq
+systemctl --user enable --now nestor-edge-cert.timer   # unites copiees dans ~/.config/systemd/user
+```
+
+Enfin une passkey pour le nouveau domaine, depuis un navigateur du tailnet :
+`nestord onboard --passkey` (l'adresse proposée est déjà `https://nestor.vienne.me`),
+lien à ouvrir dans les dix minutes. Sur le téléphone : Tailscale actif, adresse
+`wss://nestor.vienne.me/ws` et jeton de `nestord onboard`.
 
 ## Vérifications
 
 ```sh
-curl -H 'Origin: https://kanto.felis-ionian.ts.net:8443' https://kanto.felis-ionian.ts.net:8443/auth/status
-# {"auth_required":true,"domain_ok":true,"passkeys":…,"rp_id":"kanto.felis-ionian.ts.net"}
-curl -X POST https://kanto.felis-ionian.ts.net:8443/mcp     # 405 : non publié
+dig @100.84.235.85 nestor.vienne.me +short        # 100.84.235.85 (depuis le tailnet)
+curl -sI https://nestor.vienne.me/ | head -1       # 200, interface (tailnet) ; page publique ailleurs
+curl -s -H 'Origin: https://nestor.vienne.me' https://nestor.vienne.me/auth/status
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://nestor.vienne.me/mcp   # 404 : non routé
+curl -sI https://kanto.felis-ionian.ts.net/ | head -1                             # l'autre service, inchangé
+tailscale funnel status                            # rien : pas d'exposition publique par Tailscale
 ```
+
+## Variante provisoire
+
+Tant que le DNS partagé n'est pas déclaré, l'ancienne publication
+`https://kanto.felis-ionian.ts.net:8443` (`tailscale serve`, chemins `/`, `/ws`,
+`/auth`, `/location`) reste en place et fonctionne ; elle sera retirée ensuite
+(`tailscale serve --https=8443 off`).
 
 ## Reste à faire
 
-- Lancer `nestord` comme service utilisateur systemd (avec
-  `LD_LIBRARY_PATH` des bibliothèques CUDA 13, cf. `nestord/README.md`), pour
-  qu'il survive à une fermeture de session.
-- Un nom de domaine personnel (`nestor.exemple.fr`) à la place du nom MagicDNS
-  demanderait un certificat obtenu par DNS-01 et un mandataire lié à l'IP
-  Tailscale (100.x) : possible, mais rien de plus que ce que Tailscale offre déjà.
+- Passer `nestord` en service utilisateur (`deploy/systemd/nestord.service`,
+  `loginctl enable-linger`) pour qu'il survive à la session graphique.
